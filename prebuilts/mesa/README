@@ -1,0 +1,1 @@
+Mesa 26.2.5, built with NDK r30 (API 35): platforms=android android-stub gallium-drivers=freedreno, static libc++/libdrm 2.4.124. Rebuild recipe: device/lge/joan/prebuilts/mesa/build-mesa.sh

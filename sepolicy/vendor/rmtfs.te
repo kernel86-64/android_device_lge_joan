@@ -1,0 +1,13 @@
+type rmtfs, domain;
+type rmtfs_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(rmtfs)
+
+type rmtfs_mem_device, dev_type;
+type modem_efs_partition_device, dev_type;
+type modem_block_device, dev_type;
+
+allow rmtfs rmtfs_mem_device:chr_file rw_file_perms;
+allow rmtfs modem_efs_partition_device:blk_file rw_file_perms;
+allow rmtfs block_device:dir search;
+allow rmtfs self:qipcrtr_socket create_socket_perms_no_ioctl;
+allow rmtfs sysfs:file r_file_perms;

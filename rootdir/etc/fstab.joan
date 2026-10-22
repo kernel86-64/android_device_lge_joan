@@ -1,0 +1,22 @@
+# Android fstab for the LG V30 (joan) on the mainline kernel.
+#
+# Dynamic partitions live inside LG's "system" partition (see BoardConfig).
+# Mainline has no MSM8998 UFS ICE support, so /data uses software fscrypt;
+# coming from the stock/LineageOS 22.2 layout requires formatting data.
+#
+#<src>                                       <mnt_point>            <type>  <mnt_flags and options>                                         <fs_mgr_flags>
+system                                       /system                ext4    ro,barrier=1,discard                                            wait,logical,first_stage_mount
+system_ext                                   /system_ext            ext4    ro,barrier=1,discard                                            wait,logical,first_stage_mount
+product                                      /product               ext4    ro,barrier=1,discard                                            wait,logical,first_stage_mount
+vendor                                       /vendor                ext4    ro,barrier=1,discard                                            wait,logical,first_stage_mount
+odm                                          /odm                   ext4    ro,barrier=1,discard                                            wait,logical,first_stage_mount
+/dev/block/by-name/boot                      /boot                  emmc    defaults                                                        defaults
+/dev/block/by-name/recovery                  /recovery              emmc    defaults                                                        defaults
+/dev/block/by-name/misc                      /misc                  emmc    defaults                                                        defaults
+/dev/block/by-name/cache                     /cache                 ext4    nosuid,nodev,barrier=1,noatime,noauto_da_alloc,errors=continue  wait,check,formattable
+/dev/block/by-name/userdata                  /data                  ext4    nosuid,nodev,barrier=1,noatime,noauto_da_alloc,errors=continue  latemount,wait,check,formattable,fileencryption=aes-256-xts:aes-256-cts:v2,reservedsize=128M
+/dev/block/by-name/persist                   /mnt/vendor/persist    ext4    nosuid,nodev,barrier=1,noatime,noauto_da_alloc,errors=continue  wait,check
+/dev/block/by-name/modem                     /vendor/firmware_mnt   vfat    ro,shortname=lower,uid=1000,gid=1000,dmask=227,fmask=337,context=u:object_r:firmware_file:s0  wait
+/devices/platform/soc@0/c0a4900.mmc/mmc_host*                       auto    auto    defaults    voldmanaged=sdcard1:auto
+/devices/platform/soc@0/a8f8800.usb/a800000.usb/xhci-hcd.*.auto/usb*  auto    auto    defaults    voldmanaged=usb:auto
+/dev/block/zram0                             none                   swap    defaults                                                        zramsize=2147483648

@@ -1,0 +1,19 @@
+#
+# SPDX-FileCopyrightText: The LineageOS Project
+# SPDX-License-Identifier: Apache-2.0
+#
+
+firmware_directories /vendor/firmware/
+
+# DRM / GPU (msm + freedreno)
+/dev/dri/*                0666   system     graphics
+
+# Modem remote filesystem shared memory
+/dev/qcom_rmtfs_mem*      0660   system     system
+
+# Input (touch, keys, haptics)
+/dev/input/*              0660   root       input
+
+# Backlight
+/sys/class/backlight/*    brightness       0664   system   system
+/sys/class/leds/*         brightness       0664   system   system
