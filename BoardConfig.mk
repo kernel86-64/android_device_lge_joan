@@ -24,11 +24,12 @@ TARGET_OTA_ASSERT_DEVICE := v30,joan,h930,h930ds,h931,h932,h933,us998,vs996,ls99
 BOARD_KERNEL_BASE := 0x00000000
 BOARD_KERNEL_PAGESIZE := 4096
 BOARD_BOOT_HEADER_VERSION := 0
-# LG's ABL loads the kernel at +0x8000 and needs the ramdisk at +0x02000000.
+# LG's ABL loads the kernel at +0x8000; the ramdisk must sit past the
+# ~40 MiB uncompressed kernel or ABL refuses the image, hence +0x04000000.
 BOARD_MKBOOTIMG_ARGS := \
     --header_version $(BOARD_BOOT_HEADER_VERSION) \
     --kernel_offset 0x00008000 \
-    --ramdisk_offset 0x02000000 \
+    --ramdisk_offset 0x04000000 \
     --tags_offset 0x00000100
 BOARD_KERNEL_CMDLINE := \
     androidboot.hardware=joan \
