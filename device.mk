@@ -37,7 +37,8 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/etc/fstab.joan:$(TARGET_COPY_OUT_RAMDISK)/fstab.joan \
     $(LOCAL_PATH)/rootdir/etc/init.joan.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.joan.rc \
     $(LOCAL_PATH)/rootdir/etc/init.joan.usb.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.joan.usb.rc \
-    $(LOCAL_PATH)/rootdir/etc/ueventd.joan.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc
+    $(LOCAL_PATH)/rootdir/etc/ueventd.joan.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
+    $(LOCAL_PATH)/rootdir/etc/init.recovery.joan.rc:$(TARGET_COPY_OUT_RECOVERY)/root/init.recovery.joan.rc
 
 # Releasetools (H932 zap shader selection)
 PRODUCT_COPY_FILES += \
