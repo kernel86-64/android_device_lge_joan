@@ -122,7 +122,8 @@ PRODUCT_COPY_FILES += \
 # waits in StartAudioService. Generic AOSP configuration for now.
 AUDIO_POLICY_CONFIG_DIR := frameworks/av/services/audiopolicy/config
 PRODUCT_COPY_FILES += \
-    $(AUDIO_POLICY_CONFIG_DIR)/audio_policy_configuration_generic.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_policy_configuration.xml \
+    $(LOCAL_PATH)/audio/audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_policy_configuration.xml \
+    $(AUDIO_POLICY_CONFIG_DIR)/bluetooth_audio_policy_configuration_7_0.xml:$(TARGET_COPY_OUT_VENDOR)/etc/bluetooth_audio_policy_configuration_7_0.xml \
     $(AUDIO_POLICY_CONFIG_DIR)/primary_audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/primary_audio_policy_configuration.xml \
     $(AUDIO_POLICY_CONFIG_DIR)/r_submix_audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/r_submix_audio_policy_configuration.xml \
     $(AUDIO_POLICY_CONFIG_DIR)/usb_audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/usb_audio_policy_configuration.xml \
