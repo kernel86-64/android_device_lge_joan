@@ -11,3 +11,4 @@
 /vendor/firmware(/.*)?                u:object_r:firmware_file:s0
 /vendor/bin/joan_btaddr                u:object_r:joan_btaddr_exec:s0
 /vendor/bin/hw/android\.hardware\.vibrator-service\.joan u:object_r:hal_vibrator_default_exec:s0
+/dev/pn54x                            u:object_r:nfc_device:s0

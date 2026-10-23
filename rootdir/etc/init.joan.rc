@@ -23,7 +23,7 @@ on init
     # remote processors first, then what talks to them.
     exec u:r:vendor_modprobe:s0 -- /vendor/bin/modprobe -a -d /vendor/lib/modules \
         qcom_q6v5_mss qcom_q6v5_pas venus_core venus_dec venus_enc ipa \
-        hci_uart ath10k_snoc
+        hci_uart ath10k_snoc slim-qcom-ngd-ctrl
     write /dev/cpuset/foreground/cpus 0-7
     write /dev/cpuset/background/cpus 0-3
     write /dev/cpuset/system-background/cpus 0-3

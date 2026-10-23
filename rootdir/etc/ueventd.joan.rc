@@ -21,3 +21,6 @@ firmware_directories /vendor/firmware/
 # Bluetooth HAL unblocks the controller through rfkill
 /dev/rfkill               0660   bluetooth  bluetooth
 /sys/class/rfkill/rfkill* state  0664 bluetooth bluetooth
+
+# NFC (PN548)
+/dev/pn54x                0660   nfc        nfc
