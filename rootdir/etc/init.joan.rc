@@ -90,3 +90,14 @@ service logcat_kmsg /system/bin/logcat -b main -b system -b crash -v brief -f /d
 
 on property:init.svc.logd=running && property:ro.boot.joan.logcat_kmsg=1
     start logcat_kmsg
+
+# Bring-up debugging: keep this boot's kernel log and logcat on /cache so a
+# boot that never reaches adb can be read from recovery afterwards.
+service joan_bootlog /system/bin/sh -c "mkdir -p /cache/joan; dmesg -w > /cache/joan/dmesg.txt 2>&1 & logcat -b all -v threadtime > /cache/joan/logcat.txt 2>&1"
+    seclabel u:r:su:s0
+    user root
+    disabled
+    oneshot
+
+on property:init.svc.logd=running && property:ro.boot.joan.bootlog=1
+    start joan_bootlog
