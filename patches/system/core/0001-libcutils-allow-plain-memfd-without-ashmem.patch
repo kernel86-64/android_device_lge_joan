@@ -1,0 +1,18 @@
+diff --git a/libcutils/ashmem-dev.cpp b/libcutils/ashmem-dev.cpp
+index 08746556d..716e84fbb 100644
+--- a/libcutils/ashmem-dev.cpp
++++ b/libcutils/ashmem-dev.cpp
+@@ -96,6 +96,13 @@ static bool __has_memfd_support() {
+     // Check that the kernel supports the ashmem ioctls on a memfd.
+     int ashmem_size = TEMP_FAILURE_RETRY(ioctl(fd, ASHMEM_GET_SIZE, 0));
+     if (ashmem_size != static_cast<int>(buf_size)) {
++        // Without any ashmem driver memfd is the only shared memory there is:
++        // use it even though raw ashmem ioctls on it will not work. Everything
++        // going through this library handles memfds natively.
++        if (access("/dev/ashmem", F_OK) != 0) {
++            ALOGW("no ashmem driver and no ashmem-memfd compat support, using plain memfd");
++            return true;
++        }
+         ALOGE("ioctl(ASHMEM_GET_SIZE): %d != buf_size: %zd , no ashmem-memfd compat support",
+               ashmem_size, buf_size);
+         return false;

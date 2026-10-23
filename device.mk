@@ -77,6 +77,14 @@ PRODUCT_VENDOR_PROPERTIES += \
     debug.renderengine.backend=skiaglthreaded \
     ro.surface_flinger.max_frame_buffer_acquired_buffers=3
 
+# Linear buffers only for now: with UBWC render targets on scanout the
+# panel stays black (fbcon's linear buffer works). Revisit UBWC later.
+PRODUCT_VENDOR_PROPERTIES += vendor.minigbm.debug=nocompression
+
+# No ashmem driver on this kernel (ACK 6.18 only has the Rust one): use
+# memfd, see patches/system/core.
+PRODUCT_SYSTEM_PROPERTIES += sys.use_memfd=true
+
 # No Vulkan on Adreno 5xx with Mesa (turnip is a6xx+).
 PRODUCT_VENDOR_PROPERTIES += ro.hardware.vulkan=none
 
