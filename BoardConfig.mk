@@ -53,6 +53,8 @@ BOARD_VENDOR_KERNEL_MODULES_LOAD := \
     hci_uart ath10k_snoc
 
 # Partitions
+# No metadata partition: /metadata is a tmpfs (init.joan.rc) for aconfig.
+BOARD_USES_METADATA_PARTITION := true
 # A-only device (Android 16 defaults to A/B).
 AB_OTA_UPDATER := false
 BOARD_BOOTIMAGE_PARTITION_SIZE := 41943040
