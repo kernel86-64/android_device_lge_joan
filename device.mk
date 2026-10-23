@@ -108,6 +108,8 @@ PRODUCT_PACKAGES += android.hardware.light-service.lineage
 # now; audioserver aborts without any audio HAL)
 PRODUCT_PACKAGES += com.android.hardware.audio
 PRODUCT_COPY_FILES += \
+    hardware/interfaces/audio/aidl/default/audio_effects_config.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_effects_config.xml
+PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.audio.output.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.audio.output.xml
 
 # Bluetooth (Linux HCI)
