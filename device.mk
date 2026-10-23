@@ -98,6 +98,12 @@ PRODUCT_PACKAGES += \
 # Lights (panel backlight)
 PRODUCT_PACKAGES += android.hardware.light-service.lineage
 
+# Audio: AOSP AIDL audio + effects HALs (built-in default configuration for
+# now; audioserver aborts without any audio HAL)
+PRODUCT_PACKAGES += com.android.hardware.audio
+PRODUCT_COPY_FILES += \
+    frameworks/native/data/etc/android.hardware.audio.output.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.audio.output.xml
+
 # Bluetooth (Linux HCI)
 PRODUCT_PACKAGES += android.hardware.bluetooth-service.default
 PRODUCT_COPY_FILES += \
