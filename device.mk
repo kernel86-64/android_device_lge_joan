@@ -14,6 +14,12 @@ PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
 PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
 
+# Bring-up debugging: trust the build host's adb key, adb on from boot
+ifneq ($(wildcard $(LOCAL_PATH)/adb_keys),)
+PRODUCT_ADB_KEYS := $(LOCAL_PATH)/adb_keys
+PRODUCT_SYSTEM_DEFAULT_PROPERTIES += persist.sys.usb.config=mtp,adb
+endif
+
 # Screen
 TARGET_SCREEN_HEIGHT := 2880
 TARGET_SCREEN_WIDTH := 1440
@@ -80,12 +86,12 @@ PRODUCT_PACKAGES += \
 # Keymint / Gatekeeper (software for now; no QSEE on mainline)
 PRODUCT_PACKAGES += \
     android.hardware.security.keymint-service \
-    android.hardware.gatekeeper-service.nonsecure
+    com.android.hardware.gatekeeper.nonsecure
 
 # Power / Thermal / Vibrator
 PRODUCT_PACKAGES += \
     android.hardware.power-service.example \
-    android.hardware.thermal-service.example \
+    com.android.hardware.thermal \
     android.hardware.vibrator-service.example
 
 # Lights (panel backlight)
@@ -102,7 +108,6 @@ PRODUCT_PACKAGES += \
     android.hardware.wifi-service \
     hostapd \
     wpa_supplicant \
-    wpa_supplicant.conf \
     libwpa_client
 PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.wifi.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.wifi.xml \
