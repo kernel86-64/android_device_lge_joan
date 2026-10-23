@@ -111,19 +111,40 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     android.hardware.power-service.example \
     com.android.hardware.thermal \
-    android.hardware.vibrator-service.example
+    android.hardware.vibrator-service.joan
 
 # Lights (panel backlight)
 PRODUCT_PACKAGES += android.hardware.light-service.lineage
 
-# Audio: AOSP AIDL audio + effects HALs (built-in default configuration for
-# now; audioserver aborts without any audio HAL)
-PRODUCT_PACKAGES += com.android.hardware.audio
+# Audio: the legacy joan HAL (audio/hal) behind the HIDL 7.0 service, as on
+# db845c: routes come from mixer_paths.xml through libaudioroute, which the
+# AIDL default HAL has no equivalent for. The same service hosts the AIDL
+# Bluetooth audio provider.
+PRODUCT_PACKAGES += \
+    android.hardware.audio.service \
+    android.hardware.audio@7.0-impl \
+    android.hardware.audio.effect@7.0-impl \
+    android.hardware.bluetooth.audio-impl \
+    audio.primary.joan \
+    audio.bluetooth.default \
+    audio.r_submix.default \
+    audio.usb.default \
+    libaudiopreprocessing \
+    libbundlewrapper \
+    libdownmix \
+    libdynproc \
+    libeffectproxy \
+    libhapticgenerator \
+    libldnhncr \
+    libreverbwrapper \
+    libvisualizer \
+    tinycap \
+    tinymix \
+    tinypcminfo \
+    tinyplay
 PRODUCT_COPY_FILES += \
-    hardware/interfaces/audio/aidl/default/audio_effects_config.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_effects_config.xml
-# The AIDL HAL creates its modules (primary, r_submix) from the policy
-# configuration; without one IModule/default never registers and system_server
-# waits in StartAudioService. Generic AOSP configuration for now.
+    $(LOCAL_PATH)/audio/mixer_paths.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths.xml \
+    frameworks/av/media/libeffects/data/audio_effects.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_effects.xml
 AUDIO_POLICY_CONFIG_DIR := frameworks/av/services/audiopolicy/config
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/audio/audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_policy_configuration.xml \

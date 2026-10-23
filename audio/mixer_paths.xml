@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+
+     LG V30 (joan) routes on the mainline sdm845 machine driver, transcribed
+     from the hardware-verified postmarketOS UCM profile
+     (alsa-ucm-conf-lg-joan HiFi.conf):
+
+       MultiMedia1 -> TERT_MI2S_RX -> TFA9872           -> loudspeaker
+       MultiMedia1 -> SLIMBUS_0_RX -> WCD9340 HPHL/HPHR -> headphone jack
+       MultiMedia1 -> SLIMBUS_0_RX -> WCD9340 EAR PA    -> earpiece
+       WCD9340 AMICs -> SLIMBUS_0_TX -> MultiMedia2
+
+     The ES9218P Quad DAC is left in Low Power Bypass.  tfa989x bypasses
+     the CoolFlux DSP, so there is no speaker protection: the speaker gain
+     stays where the UCM profile put it.
+-->
+<mixer>
+    <!-- initial state: nothing routed -->
+    <ctl name="TERT_MI2S_RX Audio Mixer MultiMedia1" value="0" />
+    <ctl name="QUAT_MI2S_RX Audio Mixer MultiMedia1" value="0" />
+    <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="0" />
+    <ctl name="MultiMedia2 Mixer SLIMBUS_0_TX" value="0" />
+    <ctl name="SLIM RX0 MUX" value="ZERO" />
+    <ctl name="SLIM RX1 MUX" value="ZERO" />
+    <ctl name="RX INT0_1 MIX1 INP0" value="ZERO" />
+    <ctl name="RX INT0_1 INTERP" value="ZERO" />
+    <ctl name="RX INT0_2 MUX" value="ZERO" />
+    <ctl name="RX INT0_2 INTERP" value="ZERO" />
+    <ctl name="RX INT0 DEM MUX" value="NORMAL_DSM_OUT" />
+    <ctl name="RX INT1_1 MIX1 INP0" value="ZERO" />
+    <ctl name="RX INT1_1 INTERP" value="ZERO" />
+    <ctl name="RX INT1_2 MUX" value="ZERO" />
+    <ctl name="RX INT1_2 INTERP" value="ZERO" />
+    <ctl name="RX INT1 DEM MUX" value="NORMAL_DSM_OUT" />
+    <ctl name="RX INT2_1 MIX1 INP0" value="ZERO" />
+    <ctl name="RX INT2_1 INTERP" value="ZERO" />
+    <ctl name="RX INT2_2 MUX" value="ZERO" />
+    <ctl name="RX INT2_2 INTERP" value="ZERO" />
+    <ctl name="RX INT2 DEM MUX" value="NORMAL_DSM_OUT" />
+    <ctl name="AIF1_CAP Mixer SLIM TX0" value="0" />
+    <ctl name="AIF1_CAP Mixer SLIM TX6" value="0" />
+    <ctl name="AIF1_CAP Mixer SLIM TX7" value="0" />
+    <ctl name="AIF1_CAP Mixer SLIM TX8" value="0" />
+    <ctl name="CDC_IF TX0 MUX" value="ZERO" />
+    <ctl name="CDC_IF TX6 MUX" value="ZERO" />
+    <ctl name="CDC_IF TX7 MUX" value="ZERO" />
+    <ctl name="CDC_IF TX8 MUX" value="ZERO" />
+    <ctl name="AMIC MUX0" value="ZERO" />
+    <ctl name="AMIC MUX6" value="ZERO" />
+    <ctl name="AMIC MUX7" value="ZERO" />
+    <ctl name="AMIC MUX8" value="ZERO" />
+    <ctl name="TX COPP Topology" value="None" />
+    <ctl name="Headphone Mode" value="Low Power Bypass" />
+    <ctl name="Speaker Playback Volume" value="8" />
+    <ctl name="RX0 Digital Volume" value="84" />
+    <ctl name="RX1 Digital Volume" value="84" />
+    <ctl name="RX2 Digital Volume" value="84" />
+    <ctl name="EAR PA Volume" value="4" />
+    <ctl name="HPHL Volume" value="20" />
+    <ctl name="HPHR Volume" value="20" />
+    <ctl name="DEC0 Volume" value="84" />
+    <ctl name="DEC6 Volume" value="84" />
+    <ctl name="DEC7 Volume" value="84" />
+    <ctl name="DEC8 Volume" value="84" />
+    <ctl name="ADC1 Volume" value="12" />
+    <ctl name="ADC2 Volume" value="12" />
+    <ctl name="ADC3 Volume" value="6" />
+
+    <path name="speaker">
+        <ctl name="TERT_MI2S_RX Audio Mixer MultiMedia1" value="1" />
+    </path>
+
+    <path name="earpiece">
+        <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="1" />
+        <ctl name="SLIM RX0 MUX" value="AIF1_PB" />
+        <ctl name="RX INT0_1 MIX1 INP0" value="RX0" />
+        <ctl name="RX INT0_1 INTERP" value="RX INT0_1 MIX1" />
+        <ctl name="RX INT0_2 MUX" value="RX0" />
+        <ctl name="RX INT0_2 INTERP" value="RX INT0_2 MUX" />
+        <ctl name="RX INT0 DEM MUX" value="CLSH_DSM_OUT" />
+    </path>
+
+    <path name="headphones">
+        <ctl name="Headphone Mode" value="Low Power Bypass" />
+        <ctl name="RX HPH Mode" value="Class-H Hi-Fi" />
+        <ctl name="SLIMBUS_0_RX Audio Mixer MultiMedia1" value="1" />
+        <ctl name="SLIM RX0 MUX" value="AIF1_PB" />
+        <ctl name="SLIM RX1 MUX" value="AIF1_PB" />
+        <ctl name="RX INT1_1 MIX1 INP0" value="RX0" />
+        <ctl name="RX INT1_1 INTERP" value="RX INT1_1 MIX1" />
+        <ctl name="RX INT1_2 MUX" value="RX0" />
+        <ctl name="RX INT1_2 INTERP" value="RX INT1_2 MUX" />
+        <ctl name="RX INT1 DEM MUX" value="CLSH_DSM_OUT" />
+        <ctl name="RX INT2_1 MIX1 INP0" value="RX1" />
+        <ctl name="RX INT2_1 INTERP" value="RX INT2_1 MIX1" />
+        <ctl name="RX INT2_2 MUX" value="RX1" />
+        <ctl name="RX INT2_2 INTERP" value="RX INT2_2 MUX" />
+        <ctl name="RX INT2 DEM MUX" value="CLSH_DSM_OUT" />
+    </path>
+
+    <!-- bottom mic: AMIC1/ADC1 -> DEC6 -> SLIM TX6 -->
+    <path name="main-mic">
+        <ctl name="MultiMedia2 Mixer SLIMBUS_0_TX" value="1" />
+        <ctl name="AIF1_CAP Mixer SLIM TX6" value="1" />
+        <ctl name="CDC_IF TX6 MUX" value="DEC6" />
+        <ctl name="ADC MUX6" value="AMIC" />
+        <ctl name="AMIC MUX6" value="ADC1" />
+    </path>
+
+    <!-- headset in-line mic: AMIC2/ADC2 -> DEC0 -> SLIM TX0 -->
+    <path name="headset-mic">
+        <ctl name="MultiMedia2 Mixer SLIMBUS_0_TX" value="1" />
+        <ctl name="AIF1_CAP Mixer SLIM TX0" value="1" />
+        <ctl name="CDC_IF TX0 MUX" value="DEC0" />
+        <ctl name="ADC MUX0" value="AMIC" />
+        <ctl name="AMIC MUX0" value="ADC2" />
+    </path>
+
+    <!-- stereo: bottom (ADC1 -> TX7) and top (ADC3 -> TX8) mics -->
+    <path name="dual-mic">
+        <ctl name="MultiMedia2 Mixer SLIMBUS_0_TX" value="1" />
+        <ctl name="AIF1_CAP Mixer SLIM TX7" value="1" />
+        <ctl name="CDC_IF TX7 MUX" value="DEC7" />
+        <ctl name="ADC MUX7" value="AMIC" />
+        <ctl name="AMIC MUX7" value="ADC1" />
+        <ctl name="AIF1_CAP Mixer SLIM TX8" value="1" />
+        <ctl name="CDC_IF TX8 MUX" value="DEC8" />
+        <ctl name="ADC MUX8" value="AMIC" />
+        <ctl name="AMIC MUX8" value="ADC3" />
+    </path>
+</mixer>
