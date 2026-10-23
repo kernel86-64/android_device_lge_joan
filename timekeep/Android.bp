@@ -1,0 +1,12 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_binary {
+    name: "joan_timekeep",
+    vendor: true,
+    srcs: ["joan_timekeep.c"],
+    shared_libs: ["liblog"],
+    cflags: ["-Wall", "-Werror"],
+}

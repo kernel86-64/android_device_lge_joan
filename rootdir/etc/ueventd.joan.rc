@@ -24,3 +24,8 @@ firmware_directories /vendor/firmware/
 
 # NFC (PN548)
 /dev/pn54x                0660   nfc        nfc
+
+# Camera (CAMSS media graph, sensor subdevices)
+/dev/media*               0660   system     camera
+/dev/v4l-subdev*          0660   system     camera
+/dev/video*               0660   system     camera

@@ -161,7 +161,8 @@ PRODUCT_COPY_FILES += \
 # Bluetooth (Linux HCI)
 PRODUCT_PACKAGES += \
     android.hardware.bluetooth-service.default \
-    joan_btaddr
+    joan_btaddr \
+    joan_timekeep
 PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.bluetooth.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth.xml \
     frameworks/native/data/etc/android.hardware.bluetooth_le.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth_le.xml
@@ -207,3 +208,17 @@ PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.nfc.hce.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.nfc.hce.xml \
     frameworks/native/data/etc/android.hardware.nfc.hcef.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.nfc.hcef.xml \
     frameworks/native/data/etc/com.android.nfc_extras.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/com.android.nfc_extras.xml
+
+# Camera: upstream libcamera (simple pipeline + software ISP on CAMSS) as a
+# camera3 HAL module behind Lineage's AIDL provider; see prebuilts/libcamera.
+PRODUCT_PACKAGES += android.hardware.camera.provider-service.lineage
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/prebuilts/libcamera/lib64/libcamera.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libcamera.so \
+    $(LOCAL_PATH)/prebuilts/libcamera/lib64/libcamera-base.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libcamera-base.so \
+    $(LOCAL_PATH)/prebuilts/libcamera/lib64/hw/camera.libcamera.so:$(TARGET_COPY_OUT_VENDOR)/lib64/hw/camera.libcamera.so \
+    $(LOCAL_PATH)/prebuilts/libcamera/lib64/libcamera/ipa/ipa_softisp.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libcamera/ipa/ipa_softisp.so \
+    $(LOCAL_PATH)/prebuilts/libcamera/lib64/libcamera/ipa/ipa_softisp.so.sign:$(TARGET_COPY_OUT_VENDOR)/lib64/libcamera/ipa/ipa_softisp.so.sign \
+    $(LOCAL_PATH)/prebuilts/libcamera/bin/libcamera/softisp_ipa_proxy:$(TARGET_COPY_OUT_VENDOR)/bin/libcamera/softisp_ipa_proxy \
+    $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/ipa/softisp/uncalibrated.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/ipa/softisp/uncalibrated.yaml \
+    frameworks/native/data/etc/android.hardware.camera.front.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.front.xml
+PRODUCT_VENDOR_PROPERTIES += ro.hardware.camera=libcamera

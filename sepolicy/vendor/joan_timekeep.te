@@ -1,0 +1,10 @@
+type joan_timekeep, domain;
+type joan_timekeep_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(joan_timekeep)
+
+type joan_time_data_file, file_type, data_file_type;
+
+allow joan_timekeep rtc_device:chr_file r_file_perms;
+allow joan_timekeep self:capability sys_time;
+allow joan_timekeep joan_time_data_file:dir create_dir_perms;
+allow joan_timekeep joan_time_data_file:file create_file_perms;

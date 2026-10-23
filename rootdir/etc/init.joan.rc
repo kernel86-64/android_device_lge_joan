@@ -44,6 +44,7 @@ on post-fs-data
     mkdir /data/vendor/wifi/wpa/sockets 0770 wifi wifi
     mkdir /data/vendor/tmp 0770 system system
     mkdir /data/vendor/tmp/tqftpserv 0770 system system
+    mkdir /data/vendor/time 0770 system system
 
 on early-boot
     # GPU fences for drm_hwcomposer / Mesa.
@@ -63,6 +64,8 @@ on boot
     start joan_btaddr
 
 on property:sys.boot_completed=1
+    # Mirroring logcat into the kernel log costs a lot of CPU; only boot needs it.
+    stop logcat_kmsg
     write /dev/cpuset/background/cpus 0-1
     write /dev/cpuset/system-background/cpus 0-3
     swapon_all /vendor/etc/fstab.joan
@@ -110,7 +113,7 @@ on property:init.svc.logd=running && property:ro.boot.joan.logcat_kmsg=1
 
 # Bring-up debugging: keep this boot's kernel log and logcat on /cache so a
 # boot that never reaches adb can be read from recovery afterwards.
-service joan_bootlog /system/bin/sh -c "mkdir -p /cache/joan; dmesg -w > /cache/joan/dmesg.txt 2>&1 & logcat -b all -v threadtime > /cache/joan/logcat.txt 2>&1"
+service joan_bootlog /system/bin/sh -c "mkdir -p /cache/joan; timeout 180 dmesg -w > /cache/joan/dmesg.txt 2>&1 & timeout 180 logcat -b all -v threadtime > /cache/joan/logcat.txt 2>&1"
     seclabel u:r:su:s0
     user root
     disabled
@@ -118,3 +121,11 @@ service joan_bootlog /system/bin/sh -c "mkdir -p /cache/joan; dmesg -w > /cache/
 
 on property:init.svc.logd=running && property:ro.boot.joan.bootlog=1
     start joan_bootlog
+
+# The PM8998 RTC is read-only; keep a wall-clock offset (timekeep/).
+service joan_timekeep /vendor/bin/joan_timekeep
+    class core
+    user system
+    group system
+    capabilities SYS_TIME
+    oneshot
