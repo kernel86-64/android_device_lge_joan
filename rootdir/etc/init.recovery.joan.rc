@@ -1,0 +1,10 @@
+#
+# SPDX-FileCopyrightText: The LineageOS Project
+# SPDX-License-Identifier: Apache-2.0
+#
+
+on init
+    # MSM8998 DWC3 (usb@a800000) is the only UDC; recovery's USB gadget
+    # (adb/sideload) needs it named.
+    setprop sys.usb.controller a800000.usb
+    setprop sys.usb.configfs 1

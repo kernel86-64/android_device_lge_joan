@@ -10,6 +10,10 @@
 LOCAL_PATH := device/lge/joan
 
 PRODUCT_SHIPPING_API_LEVEL := 25
+
+# ART: use the CC collector. With CMC (userfaultfd) zygote hangs right after
+# "Using CollectorTypeCMC GC" on this kernel; revisit once that is understood.
+PRODUCT_ENABLE_UFFD_GC := false
 PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
 PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
@@ -17,7 +21,9 @@ PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
 # Bring-up debugging: trust the build host's adb key, adb on from boot
 ifneq ($(wildcard $(LOCAL_PATH)/adb_keys),)
 PRODUCT_ADB_KEYS := $(LOCAL_PATH)/adb_keys
-PRODUCT_SYSTEM_DEFAULT_PROPERTIES += persist.sys.usb.config=mtp,adb
+# adb only (no MTP) while bringing up: MTP's function is served from
+# system_server, and the gadget cannot start until every function is ready.
+PRODUCT_SYSTEM_DEFAULT_PROPERTIES += persist.sys.usb.config=adb
 endif
 
 # Screen

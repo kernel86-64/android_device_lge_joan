@@ -1,0 +1,12 @@
+<compatibility-matrix version="2.0" type="framework">
+    <!-- base_vendor.mk still ships the deprecated configstore service;
+         let it register instead of crash-looping before boot completes. -->
+    <hal format="hidl" optional="true">
+        <name>android.hardware.configstore</name>
+        <version>1.1</version>
+        <interface>
+            <name>ISurfaceFlingerConfigs</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+</compatibility-matrix>
