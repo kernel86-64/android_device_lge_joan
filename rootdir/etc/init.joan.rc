@@ -59,6 +59,8 @@ on boot
     # Start the modem: rmtfs serves its EFS from modemst1/modemst2/fsg.
     start rmtfs
     start tqftpserv
+    # Bluetooth: give the address-less WCN3990 a public BD address.
+    start joan_btaddr
 
 on property:sys.boot_completed=1
     write /dev/cpuset/background/cpus 0-1
@@ -79,8 +81,17 @@ service tqftpserv /vendor/bin/tqftpserv
     group system
     disabled
 
+# The WCN3990 has no factory BD address; see btaddr/joan_btaddr.c.
+service joan_btaddr /vendor/bin/joan_btaddr
+    class core
+    user root
+    group bluetooth net_admin
+    capabilities NET_ADMIN
+    disabled
+    oneshot
+
 service wpa_supplicant /vendor/bin/hw/wpa_supplicant \
-        -Dnl80211 -g@android:wpa_wlan0
+        -Dnl80211 -O/data/vendor/wifi/wpa/sockets -g@android:wpa_wlan0
     interface aidl android.hardware.wifi.supplicant.ISupplicant/default
     socket wpa_wlan0 dgram 660 wifi wifi
     class main

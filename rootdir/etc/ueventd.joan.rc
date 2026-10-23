@@ -17,3 +17,7 @@ firmware_directories /vendor/firmware/
 # Backlight
 /sys/class/backlight/*    brightness       0664   system   system
 /sys/class/leds/*         brightness       0664   system   system
+
+# Bluetooth HAL unblocks the controller through rfkill
+/dev/rfkill               0660   bluetooth  bluetooth
+/sys/class/rfkill/rfkill* state  0664 bluetooth bluetooth

@@ -43,6 +43,15 @@ cp "$MODEM"/wlanmdsp.mbn "$FW/"
 cp "$MODEM"/ipa_fws.* "$FW/"
 cp "$MODEM"/bdwlan.bin "$FW/ath10k/WCN3990/hw1.0/board.bin"
 
+# ath10k WCN3990 host firmware API file and the signed regulatory
+# database: redistributable, taken from the host's linux-firmware and an
+# upstream wireless-regdb checkout (override with LINUX_FIRMWARE/REGDB).
+LINUX_FIRMWARE=${LINUX_FIRMWARE:-/usr/lib/firmware}
+REGDB=${REGDB:-$HOME/android/firmware/wireless-regdb/src}
+zstdcat -f "$LINUX_FIRMWARE"/ath10k/WCN3990/hw1.0/firmware-5.bin* \
+	> "$FW/ath10k/WCN3990/hw1.0/firmware-5.bin"
+cp "$REGDB"/regulatory.db "$REGDB"/regulatory.db.p7s "$FW/"
+
 # Adreno 540: microcode is shared with A530, GPMU and the signed zap shader
 # are A540 specific. H932 ships its own signed zap; releasetools installs
 # the matching set (see releasetools/device_check.sh).

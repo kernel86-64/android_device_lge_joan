@@ -138,20 +138,24 @@ PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.audio.output.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.audio.output.xml
 
 # Bluetooth (Linux HCI)
-PRODUCT_PACKAGES += android.hardware.bluetooth-service.default
+PRODUCT_PACKAGES += \
+    android.hardware.bluetooth-service.default \
+    joan_btaddr
 PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.bluetooth.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth.xml \
     frameworks/native/data/etc/android.hardware.bluetooth_le.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth_le.xml
 
-# Wi-Fi (ath10k)
+# Wi-Fi (ath10k). No vendor Wi-Fi HAL: libwifi-hal has no ath10k backend
+# (qcwcn speaks QCA vendor commands ath10k does not implement), and without
+# an IWifi service the framework drives wlan0 through wificond/nl80211.
 PRODUCT_PACKAGES += \
-    android.hardware.wifi-service \
     hostapd \
     wpa_supplicant \
     libwpa_client
 PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.wifi.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.wifi.xml \
-    frameworks/native/data/etc/android.hardware.wifi.direct.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.wifi.direct.xml
+    $(LOCAL_PATH)/wifi/wpa_supplicant.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/wpa_supplicant.conf \
+    $(LOCAL_PATH)/wifi/wpa_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/wpa_supplicant_overlay.conf
 
 # Touch / USB host / misc features
 PRODUCT_COPY_FILES += \

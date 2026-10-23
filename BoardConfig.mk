@@ -50,7 +50,7 @@ TARGET_KERNEL_VERSION := 6.18
 # init.joan.rc loads the firmware-dependent ones after /vendor is up.
 BOARD_VENDOR_KERNEL_MODULES_LOAD := \
     qcom_q6v5_mss qcom_q6v5_pas venus-core venus-dec venus-enc ipa \
-    hci_uart ath10k_snoc
+    hci_uart ath10k_snoc slim-qcom-ngd-ctrl
 
 # Partitions
 # No metadata partition: /metadata is a tmpfs (init.joan.rc) for aconfig.
