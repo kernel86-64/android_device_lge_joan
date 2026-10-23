@@ -26,6 +26,10 @@ PRODUCT_ADB_KEYS := $(LOCAL_PATH)/adb_keys
 PRODUCT_SYSTEM_DEFAULT_PROPERTIES += persist.sys.usb.config=adb
 endif
 
+# Dalvik heap (4 GB RAM); without it ART's 16 MB default makes
+# system_server run out of heap during boot.
+$(call inherit-product, frameworks/native/build/phone-xhdpi-4096-dalvik-heap.mk)
+
 # Screen
 TARGET_SCREEN_HEIGHT := 2880
 TARGET_SCREEN_WIDTH := 1440
