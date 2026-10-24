@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: CC0-1.0
+#
+# libcamera Android HAL camera list for the LG V30 (joan). The HAL requires
+# an entry for every internal camera; ids are the sensors' DT paths.
+# Rotations are LG's mount angles (msm8998-joan-camera_rev_0.dtsi).
+
+cameras:
+  # Main: Sony IMX351 on CCI0 / CSIPHY0
+  "/base/soc@0/cci@ca0c000/i2c-bus@0/camera@10":
+    location: back
+    rotation: 90
+
+  # Wide angle: Samsung S5K3M3 on CCI1 / CSIPHY1
+  "/base/soc@0/cci@ca0c000/i2c-bus@1/camera@2d":
+    location: back
+    rotation: 90
+
+  # Front: Hynix HI553 on BLSP2 I2C2 / CSIPHY2
+  "/base/soc@0/i2c@c1b6000/camera@20":
+    location: front
+    rotation: 270

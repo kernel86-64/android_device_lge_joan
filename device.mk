@@ -232,6 +232,7 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/prebuilts/libcamera/lib64/libcamera/ipa/ipa_softisp.so.sign:$(TARGET_COPY_OUT_VENDOR)/lib64/libcamera/ipa/ipa_softisp.so.sign \
     $(LOCAL_PATH)/prebuilts/libcamera/bin/libcamera/softisp_ipa_proxy:$(TARGET_COPY_OUT_VENDOR)/bin/libcamera/softisp_ipa_proxy \
     $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/ipa/softisp/uncalibrated.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/ipa/softisp/uncalibrated.yaml \
+    $(LOCAL_PATH)/camera/camera_hal.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/camera_hal.yaml \
     frameworks/native/data/etc/android.hardware.camera.front.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.front.xml
 PRODUCT_VENDOR_PROPERTIES += ro.hardware.camera=libcamera
 
