@@ -38,6 +38,7 @@ BOARD_KERNEL_CMDLINE := \
     androidboot.selinux=permissive \
     firmware_class.path=/vendor/firmware \
     loop.max_part=7 \
+    cpuidle.governor=teo \
     log_buf_len=4M \
     androidboot.joan.logcat_kmsg=1 \
     androidboot.joan.bootlog=1
