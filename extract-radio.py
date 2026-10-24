@@ -33,7 +33,7 @@ FROM_SOURCE_PREFIXES = (
     'android.', 'libbase', 'libc++', 'libcutils', 'libutils', 'libhidl',
     'libbinder', 'libz.', 'libsqlite', 'libxml2', 'libprotobuf', 'libnetutils',
     'libhardware', 'server_configurable', 'libaconfig', 'liblog', 'libvndksupport',
-    'libapexsupport', 'libandroid_net',
+    'libapexsupport', 'libandroid_net', 'libqti_vndfwk_detect',
 )
 BIONIC = {'libc.so', 'libdl.so', 'libm.so'}
 DATA = [
