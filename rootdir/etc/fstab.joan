@@ -19,4 +19,4 @@ odm                                          /odm                   ext4    ro,b
 /dev/block/by-name/modem                     /vendor/firmware_mnt   vfat    ro,shortname=lower,uid=1000,gid=1000,dmask=227,fmask=337,context=u:object_r:firmware_file:s0  wait
 /devices/platform/soc@0/c0a4900.mmc/mmc_host*                       auto    auto    defaults    voldmanaged=sdcard1:auto
 /devices/platform/soc@0/a8f8800.usb/a800000.usb/xhci-hcd.*.auto/usb*  auto    auto    defaults    voldmanaged=usb:auto
-/dev/block/zram0                             none                   swap    defaults                                                        zramsize=2147483648
+/dev/block/zram0                             none                   swap    defaults                                                        zramsize=3221225472

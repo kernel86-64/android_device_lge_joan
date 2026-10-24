@@ -120,7 +120,7 @@ PRODUCT_PACKAGES += \
 
 # Power / Thermal / Vibrator
 PRODUCT_PACKAGES += \
-    android.hardware.power-service.example \
+    android.hardware.power-service.lineage-libperfmgr \
     com.android.hardware.thermal \
     android.hardware.vibrator-service.joan
 
@@ -252,7 +252,12 @@ PRODUCT_PACKAGES += \
     android.hardware.secure_element@1.0.vendor \
     android.hardware.secure_element@1.1.vendor \
     android.hardware.secure_element@1.2.vendor \
-    libprotobuf-cpp-full-3.9.1-vendorcompat
+    libprotobuf-cpp-full-3.9.1-vendorcompat \
+    android.system.net.netd@1.0.vendor \
+    android.system.net.netd@1.1.vendor \
+    libnetutils.vendor \
+    libqti_vndfwk_detect.vendor \
+    libsqlite.vendor
 PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.telephony.gsm.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.telephony.gsm.xml \
     frameworks/native/data/etc/android.hardware.telephony.cdma.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.telephony.cdma.xml
@@ -270,3 +275,8 @@ PRODUCT_VENDOR_PROPERTIES += \
     ril.subscription.types=NV,RUIM \
     ro.telephony.default_network=10 \
     telephony.lteOnCdmaDevice=1
+
+# Power HAL profile (touch / launch boosts) for the mainline cpufreq and
+# GPU devfreq nodes; adapted from the 22.2 joan profile
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/power/powerhint.json:$(TARGET_COPY_OUT_VENDOR)/etc/powerhint.json

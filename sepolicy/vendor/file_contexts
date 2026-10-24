@@ -19,3 +19,4 @@
 /vendor/bin/hw/qcrild                  u:object_r:rild_exec:s0
 /vendor/bin/netmgrd                    u:object_r:netmgrd_exec:s0
 /data/vendor/radio(/.*)?               u:object_r:radio_vendor_data_file:s0
+/vendor/bin/hw/android\.hardware\.power-service\.lineage-libperfmgr u:object_r:hal_power_default_exec:s0
