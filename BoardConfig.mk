@@ -52,6 +52,8 @@ BOARD_VENDOR_KERNEL_MODULES_LOAD := \
     qcom_q6v5_mss qcom_q6v5_pas venus-core venus-dec venus-enc ipa \
     hci_uart ath10k_snoc slim-qcom-ngd-ctrl
 
+TARGET_BOARD_PLATFORM := msm8998
+
 # Partitions
 # No metadata partition: /metadata is a tmpfs (init.joan.rc) for aconfig.
 BOARD_USES_METADATA_PARTITION := true

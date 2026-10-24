@@ -57,6 +57,7 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/etc/fstab.joan:$(TARGET_COPY_OUT_RAMDISK)/fstab.joan \
     $(LOCAL_PATH)/rootdir/etc/init.joan.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.joan.rc \
     $(LOCAL_PATH)/rootdir/etc/init.joan.usb.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.joan.usb.rc \
+    $(LOCAL_PATH)/rootdir/etc/init.joan.radio.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.joan.radio.rc \
     $(LOCAL_PATH)/rootdir/etc/ueventd.joan.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
     $(LOCAL_PATH)/rootdir/etc/init.recovery.joan.rc:$(TARGET_COPY_OUT_RECOVERY)/root/init.recovery.joan.rc
 
@@ -204,6 +205,7 @@ PRODUCT_PACKAGES += \
 
 # Firmware extracted from the phone (see extract-firmware.sh)
 $(call inherit-product-if-exists, vendor/lge/joan/joan-vendor.mk)
+$(call inherit-product-if-exists, vendor/lge/joan/radio/radio-vendor.mk)
 
 # NFC (PN548 through /dev/pn54x; no firmware library is shipped, so the HAL
 # never reflashes the controller). Configuration from the LG vendor image.
@@ -232,3 +234,38 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/ipa/softisp/uncalibrated.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/ipa/softisp/uncalibrated.yaml \
     frameworks/native/data/etc/android.hardware.camera.front.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.front.xml
 PRODUCT_VENDOR_PROPERTIES += ro.hardware.camera=libcamera
+
+# Telephony: Qualcomm qcrild + netmgrd from the 22.2 vendor image (see
+# extract-radio.py); the AOSP pieces they link against are built here.
+PRODUCT_PACKAGES += \
+    android.hardware.radio@1.0.vendor \
+    android.hardware.radio@1.1.vendor \
+    android.hardware.radio@1.2.vendor \
+    android.hardware.radio@1.3.vendor \
+    android.hardware.radio@1.4.vendor \
+    android.hardware.radio@1.5.vendor \
+    android.hardware.radio.config@1.0.vendor \
+    android.hardware.radio.config@1.1.vendor \
+    android.hardware.radio.config@1.2.vendor \
+    android.hardware.radio.deprecated@1.0.vendor \
+    android.hardware.secure_element@1.0.vendor \
+    android.hardware.secure_element@1.1.vendor \
+    android.hardware.secure_element@1.2.vendor \
+    libprotobuf-cpp-full-3.9.1-vendorcompat
+PRODUCT_COPY_FILES += \
+    frameworks/native/data/etc/android.hardware.telephony.gsm.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.telephony.gsm.xml \
+    frameworks/native/data/etc/android.hardware.telephony.cdma.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.telephony.cdma.xml
+PRODUCT_VENDOR_PROPERTIES += \
+    persist.vendor.radio.apm_sim_not_pwdn=1 \
+    persist.vendor.radio.custom_ecc=1 \
+    persist.vendor.radio.mt_sms_ack=30 \
+    persist.vendor.radio.procedure_bytes=SKIP \
+    persist.vendor.radio.rat_on=combine \
+    persist.vendor.radio.sib16_support=1 \
+    persist.vendor.radio.add_power_save=1 \
+    persist.vendor.data.iwlan.enable=false \
+    persist.vendor.cne.feature=0 \
+    persist.vendor.dpm.feature=0 \
+    ril.subscription.types=NV,RUIM \
+    ro.telephony.default_network=10 \
+    telephony.lteOnCdmaDevice=1

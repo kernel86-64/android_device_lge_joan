@@ -1,0 +1,52 @@
+#
+# SPDX-FileCopyrightText: The LineageOS Project
+# SPDX-License-Identifier: Apache-2.0
+#
+# Telephony: Qualcomm qcrild (RIL) and netmgrd (mobile data) from the
+# LineageOS 22.2 vendor image, over the mainline QRTR/QMI modem stack
+# (vendor/lge/joan/radio, extract-radio.py).
+
+on post-fs-data
+    mkdir /data/vendor/radio 0770 system radio
+    mkdir /data/vendor/modem_config 0570 radio root
+    # qcrild seeds its database from the prebuilt one
+    copy /vendor/radio/qcril_database/qcril.db /data/vendor/radio/qcril_prebuilt.db
+    chown radio radio /data/vendor/radio/qcril_prebuilt.db
+    chmod 0660 /data/vendor/radio/qcril_prebuilt.db
+    write /data/vendor/radio/prebuilt_db_support 1
+    chown radio radio /data/vendor/radio/prebuilt_db_support
+    chmod 0400 /data/vendor/radio/prebuilt_db_support
+    write /data/vendor/radio/db_check_done 0
+    chown radio radio /data/vendor/radio/db_check_done
+    chmod 0660 /data/vendor/radio/db_check_done
+    # No modem config (MBN) copy step on this build
+    write /data/vendor/radio/copy_complete 1
+    chown radio radio /data/vendor/radio/copy_complete
+    chmod 0660 /data/vendor/radio/copy_complete
+    mkdir /data/vendor/netmgr 0770 radio radio
+    mkdir /data/vendor/netmgr/recovery 0770 radio radio
+    write /data/vendor/netmgr/recovery/recovery_info ""
+    chown radio radio /data/vendor/netmgr/recovery/recovery_info
+
+on boot
+    mkdir /dev/socket/netmgr 0750 radio radio
+    write /proc/sys/net/core/rmem_max 16777216
+    write /proc/sys/net/core/wmem_max 8388608
+    setprop ro.telephony.call_ring.multiple false
+    start vendor.qcrild
+
+service vendor.qcrild /vendor/bin/hw/qcrild
+    class main
+    user radio
+    disabled
+    group radio cache inet misc audio log readproc wakelock oem_2901
+    capabilities BLOCK_SUSPEND NET_ADMIN NET_RAW
+
+service vendor.netmgrd /vendor/bin/netmgrd
+    class main
+    user root
+    group radio system inet net_admin wakelock oem_2901
+    capabilities NET_ADMIN NET_RAW
+
+on property:persist.vendor.data.mode=disabled
+    stop vendor.netmgrd
