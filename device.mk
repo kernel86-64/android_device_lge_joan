@@ -18,6 +18,16 @@ PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
 PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
 
+# Overlays (from the LineageOS 22.2 joan tree, minus what needs the
+# downstream vendor stack: light sensor, doze sensors, QTI telephony, the
+# vendor Wi-Fi HAL)
+DEVICE_PACKAGE_OVERLAYS += \
+    $(LOCAL_PATH)/overlay \
+    $(LOCAL_PATH)/overlay-lineage
+PRODUCT_ENFORCE_RRO_TARGETS := *
+PRODUCT_ENFORCE_RRO_EXCLUDED_OVERLAYS += $(LOCAL_PATH)/overlay-lineage/lineage-sdk
+PRODUCT_PACKAGES += WifiOverlay.joan
+
 # Bring-up debugging: trust the build host's adb key, adb on from boot
 ifneq ($(wildcard $(LOCAL_PATH)/adb_keys),)
 PRODUCT_ADB_KEYS := $(LOCAL_PATH)/adb_keys
