@@ -1,0 +1,24 @@
+UsbService: instantiate the device manager for configfs UDC gadgets
+
+Mainline configfs gadgets expose a UDC (sys.usb.controller) without the
+android_usb compatibility class, so the USB device manager never started.
+
+diff --git a/services/usb/java/com/android/server/usb/UsbService.java b/services/usb/java/com/android/server/usb/UsbService.java
+index 8a724d255ae6..1129956cbe2d 100644
+--- a/services/usb/java/com/android/server/usb/UsbService.java
++++ b/services/usb/java/com/android/server/usb/UsbService.java
+@@ -216,7 +216,13 @@ public class UsbService extends IUsbManager.Stub {
+         if (pm.hasSystemFeature(PackageManager.FEATURE_USB_HOST)) {
+             mHostManager = new UsbHostManager(context, mAlsaManager, mPermissionManager);
+         }
+-        if (new File("/sys/class/android_usb").exists()) {
++        // Mainline configfs gadgets expose a UDC, without the android_usb
++        // compatibility class. Instantiate the manager for that controller
++        // too, otherwise function requests and UDC monitoring never start.
++        final String usbController = SystemProperties.get("sys.usb.controller", "");
++        final boolean hasUdc = !usbController.isEmpty()
++                && new File("/sys/class/udc", usbController).isDirectory();
++        if (new File("/sys/class/android_usb").exists() || hasUdc) {
+             mDeviceManager = new UsbDeviceManager(context, mAlsaManager, mSettingsManager,
+                     mPermissionManager);
+         }

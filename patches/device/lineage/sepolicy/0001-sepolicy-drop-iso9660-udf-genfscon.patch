@@ -1,0 +1,15 @@
+sepolicy: drop the iso9660 and udf genfscon entries
+
+The joan kernel builds neither filesystem, and policy loading fails on
+genfscon entries for filesystems the kernel does not know.
+
+diff --git a/common/private/genfs_contexts b/common/private/genfs_contexts
+index 57f7e0e..efad910 100644
+--- a/common/private/genfs_contexts
++++ b/common/private/genfs_contexts
+@@ -1,5 +1,3 @@
+ genfscon sysfs /devices/virtual/timed_output/vibrator u:object_r:sysfs_vibrator:s0
+ genfscon sysfs /module/mmcblk/parameters/perdev_minors u:object_r:sysfs_perdev_minors:s0
+ 
+-genfscon iso9660 / u:object_r:iso9660:s0
+-genfscon udf / u:object_r:udf:s0

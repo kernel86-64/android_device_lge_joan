@@ -1,0 +1,17 @@
+libwifi_hal: reference libwifi-hal-qcom through its Soong namespace
+
+The qcwcn backend lives in the hardware/qcom/wlan namespace.
+
+diff --git a/libwifi_hal/Android.bp b/libwifi_hal/Android.bp
+index a82387a57..ab8cb5d7a 100644
+--- a/libwifi_hal/Android.bp
++++ b/libwifi_hal/Android.bp
+@@ -164,7 +164,7 @@ wifi_cc_defaults {
+                 whole_static_libs: ["libwifi-hal-syna"],
+             },
+             qcwcn: {
+-                defaults: ["libwifi-hal-qcom"],
++                defaults: ["//hardware/qcom/wlan:libwifi-hal-qcom"],
+             },
+             mrvl: {
+                 // this is commented because none of the nexus devices

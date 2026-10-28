@@ -1,0 +1,115 @@
+recovery: opt-in unattended sideload for bring-up, and a stage crash fix
+
+On debuggable builds with debug.recovery.auto_sideload=true, a plain recovery
+boot starts ADB sideload at once and (debug.recovery.auto_reboot=true) reboots
+after a successful install. Skips the userdata mount when /adb_keys is already
+embedded, allows a longer sideload timeout via debug.recovery.sideload_timeout,
+and fixes an inverted std::optional check in start_recovery() that crashed
+when no stage was set.
+
+diff --git a/install/adb_install.cpp b/install/adb_install.cpp
+index 24b937b3..a3bb572f 100644
+--- a/install/adb_install.cpp
++++ b/install/adb_install.cpp
+@@ -208,8 +208,12 @@ static void ListenAndExecuteMinadbdCommands(
+     return;
+   }
+ 
+-  // Set the timeout to be 300s when waiting for minadbd commands.
+-  constexpr int TIMEOUT_MILLIS = 300 * 1000;
++  // Slow USB links can need longer than five minutes. Debug recovery can
++  // extend the wait; production behavior remains five minutes.
++  const int TIMEOUT_MILLIS = 1000 *
++      (android::base::GetBoolProperty("ro.debuggable", false)
++           ? android::base::GetIntProperty("debug.recovery.sideload_timeout", 300, 60, 1800)
++           : 300);
+   while (true) {
+     // Reset the progress bar and the background image before each command.
+     ui->SetProgressType(RecoveryUI::EMPTY);
+diff --git a/install/install.cpp b/install/install.cpp
+index 2e8b7655..0a16c31f 100644
+--- a/install/install.cpp
++++ b/install/install.cpp
+@@ -664,7 +664,13 @@ static InstallResult VerifyAndInstallPackage(Package* package, bool* wipe_cache,
+   // Verify package.
+   if (!verify_package(package, ui)) {
+     log_buffer->push_back(android::base::StringPrintf("error: %d", kZipVerificationFailure));
+-    if (!ui->IsTextVisible() || !ask_to_continue_unverified(ui->GetDevice())) {
++    // An unattended debug recovery must return to its menu on verification
++    // failure rather than wait forever for an "install anyway" response.
++    const bool unattended_sideload =
++        android::base::GetBoolProperty("ro.debuggable", false) &&
++        android::base::GetBoolProperty("debug.recovery.auto_sideload", false);
++    if (unattended_sideload || !ui->IsTextVisible() ||
++        !ask_to_continue_unverified(ui->GetDevice())) {
+         return INSTALL_CORRUPT;
+     }
+   }
+diff --git a/recovery.cpp b/recovery.cpp
+index 44c7261f..86d360cb 100644
+--- a/recovery.cpp
++++ b/recovery.cpp
+@@ -633,6 +633,11 @@ change_menu:
+         ui->Print("\nInstall completed with status %d.\n", status);
+         if (status == INSTALL_SUCCESS) {
+           update_in_progress = false;
++          if (chosen_action == Device::APPLY_ADB_SIDELOAD && IsRoDebuggable() &&
++              android::base::GetBoolProperty("debug.recovery.auto_reboot", false)) {
++            ui->Print("Debug recovery: rebooting after successful installation.\n");
++            return Device::REBOOT;
++          }
+           if (!ui->IsTextVisible()) {
+             return Device::NO_ACTION;  // reboot if logs aren't visible
+           }
+@@ -878,7 +883,7 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
+   ui->SetSystemUpdateText(security_update);
+ 
+   int st_cur = 0, st_max = 0;
+-  if (!device->GetStage().has_value() &&
++  if (device->GetStage().has_value() &&
+       sscanf(device->GetStage().value().c_str(), "%d/%d", &st_cur, &st_max) == 2) {
+     ui->SetStage(st_cur, st_max);
+   }
+@@ -1025,7 +1030,9 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
+     ui->SetSideloadAutoReboot(sideload_auto_reboot);
+     status = ApplyFromAdb(device, false /* rescue_mode */, &next_action);
+     ui->Print("\nInstall from ADB complete (status: %d).\n", status);
+-    if (sideload_auto_reboot) {
++    if (sideload_auto_reboot ||
++        (status == INSTALL_SUCCESS && IsRoDebuggable() &&
++         android::base::GetBoolProperty("debug.recovery.auto_reboot", false))) {
+       status = INSTALL_REBOOT;
+       ui->Print("Rebooting automatically.\n");
+     }
+diff --git a/recovery_main.cpp b/recovery_main.cpp
+index 3fdef4ea..57ae1d6d 100644
+--- a/recovery_main.cpp
++++ b/recovery_main.cpp
+@@ -201,6 +201,11 @@ static std::string load_locale_from_cache() {
+ }
+ 
+ static void copy_userdata_files() {
++  // An embedded host key already permits authenticated ADB. Do not delay
++  // access by mounting (and potentially checking) userdata unnecessarily.
++  if (access(adb_keys_root, R_OK) == 0) {
++    return;
++  }
+   android::base::SetLogger(android::base::StdioLogger);
+   if (ensure_path_mounted("/data") == 0) {
+     if (access(adb_keys_root, F_OK) != 0) {
+@@ -532,7 +537,15 @@ int main(int argc, char** argv) {
+ 
+   device->InitDevice();
+ 
++  // Opt-in bring-up recovery: an ordinary recovery boot accepts a sideload
++  // immediately. Consume this once so cancellation returns to the menu. An
++  // explicit BCB command (OTA, wipe, rescue, fastboot) always takes precedence.
+   Device::BuiltinAction next_recovery_action = Device::NO_ACTION;
++  if (!fastboot && args.size() == 1 && IsRoDebuggable() &&
++      android::base::GetBoolProperty("debug.recovery.auto_sideload", false)) {
++    LOG(INFO) << "Starting automatic ADB sideload";
++    next_recovery_action = Device::APPLY_ADB_SIDELOAD;
++  }
+   while (true) {
+     // We start adbd in recovery for the device with userdebug build or a unlocked bootloader.
+     std::string usb_config =

@@ -1,0 +1,70 @@
+releasetools: build non-A/B OTAs from prebuilt partition images
+
+Accept partitions that only ship as IMAGES/<partition>.img (no block map, no
+extracted tree), create missing directories when unpacking, and skip the VINTF
+check when there is no tree to check against.
+
+diff --git a/tools/releasetools/common.py b/tools/releasetools/common.py
+index 3a49da7d7e..d177a92908 100644
+--- a/tools/releasetools/common.py
++++ b/tools/releasetools/common.py
+@@ -2328,11 +2328,11 @@ def GetNonSparseImage(which, tmpdir):
+     A Image object.
+   """
+   path = os.path.join(tmpdir, "IMAGES", which + ".img")
+-  mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
+ 
+-  # The image and map files must have been created prior to calling
+-  # ota_from_target_files.py (since LMP).
+-  assert os.path.exists(path) and os.path.exists(mappath)
++  # The image must have been created prior to calling
++  # ota_from_target_files.py. FileImage doesn't use the block map, so prebuilt
++  # images without one are fine.
++  assert os.path.exists(path)
+ 
+   return images.FileImage(path)
+ 
+diff --git a/tools/releasetools/make_recovery_patch.py b/tools/releasetools/make_recovery_patch.py
+index 1497d69ed7..7270411b11 100644
+--- a/tools/releasetools/make_recovery_patch.py
++++ b/tools/releasetools/make_recovery_patch.py
+@@ -56,8 +56,9 @@ def main(argv):
+     target_files_dir = "SYSTEM"
+ 
+   def output_sink(fn, data):
+-    with open(os.path.join(output_dir, target_files_dir,
+-                           *fn.split("/")), "wb") as f:
++    path = os.path.join(output_dir, target_files_dir, *fn.split("/"))
++    os.makedirs(os.path.dirname(path), exist_ok=True)
++    with open(path, "wb") as f:
+       f.write(data)
+ 
+   common.MakeRecoveryPatch(input_dir, output_sink, recovery_img, boot_img)
+diff --git a/tools/releasetools/non_ab_ota.py b/tools/releasetools/non_ab_ota.py
+index 2d1075eb81..061dd557cb 100644
+--- a/tools/releasetools/non_ab_ota.py
++++ b/tools/releasetools/non_ab_ota.py
+@@ -69,7 +69,9 @@ def GetBlockDifferences(target_zip, source_zip, target_info, source_info,
+   partition_names = ["system", "vendor", "product", "odm", "system_ext",
+                      "vendor_dlkm", "odm_dlkm", "system_dlkm"]
+   for partition in partition_names:
+-    if not HasPartition(target_zip, partition):
++    # Prebuilt partition images only ship as IMAGES/<partition>.img.
++    if (not HasPartition(target_zip, partition) and
++        "IMAGES/{}.img".format(partition) not in target_zip.namelist()):
+       continue
+     # Full OTA update.
+     if not source_zip:
+@@ -256,7 +258,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
+                              progress=progress_dict.get(block_diff.partition),
+                              write_verify_script=OPTIONS.verify)
+ 
+-  CheckVintfIfTrebleEnabled(OPTIONS.input_tmp, target_info)
++  try:
++    CheckVintfIfTrebleEnabled(OPTIONS.input_tmp, target_info)
++  except ValueError as e:
++    # Prebuilt partition images have no extracted tree to check against.
++    logger.warning("Skipping VINTF compatibility check: %s", e)
+ 
+   boot_img = common.GetBootableImage(
+       "boot.img", "boot.img", OPTIONS.input_tmp, "BOOT")
