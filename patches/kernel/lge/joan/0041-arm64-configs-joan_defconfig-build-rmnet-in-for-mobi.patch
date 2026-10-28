@@ -1,0 +1,28 @@
+From cc15dc9fbbca0d2f4d525742558931c95ed4a4d2 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Sat, 24 Oct 2026 07:08:27 +0000
+Subject: [PATCH 41/53] arm64: configs: joan_defconfig: build rmnet in for
+ mobile data
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ arch/arm64/configs/joan_defconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/configs/joan_defconfig b/arch/arm64/configs/joan_defconfig
+index 5273a4452f62..b8beb4fb1d2f 100644
+--- a/arch/arm64/configs/joan_defconfig
++++ b/arch/arm64/configs/joan_defconfig
+@@ -400,7 +400,7 @@ CONFIG_MVMDIO=m
+ # CONFIG_NET_VENDOR_NATSEMI is not set
+ # CONFIG_NET_VENDOR_NETRONOME is not set
+ CONFIG_QCOM_EMAC=m
+-CONFIG_RMNET=m
++CONFIG_RMNET=y
+ # CONFIG_NET_VENDOR_ROCKER is not set
+ # CONFIG_NET_VENDOR_SAMSUNG is not set
+ # CONFIG_NET_VENDOR_SEEQ is not set
+-- 
+2.55.0
+

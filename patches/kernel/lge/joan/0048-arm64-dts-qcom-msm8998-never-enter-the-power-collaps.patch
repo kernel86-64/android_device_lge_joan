@@ -1,0 +1,101 @@
+From 723af451259552664071ed0153d9bb5fdef1382e Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Sat, 24 Oct 2026 21:41:14 +0000
+Subject: [PATCH 48/53] arm64: dts: qcom: msm8998: never enter the
+ power-collapse idle states
+
+The C3/D4 states (little/big power collapse) use local-timer-stop and
+PSCI OS-initiated suspend. On joan the core enters them and never wakes:
+RCU reports "1-...0: (0 ticks this GP)" and the NMI backtrace for that
+CPU is empty, i.e. it is powered off and not taking interrupts. The
+system then loses the RPM (qcom_icc_rpm_smd_send ... -110, UFS bandwidth
+requests fail), the modem crashes and the UI freezes, about three
+minutes after boot.
+
+v19 used the menu governor and did not hit this. Rather than depend on a
+governor avoiding the state, only advertise the retention state (C2D, L2
+active), whose timer keeps running. The power-collapse nodes stay in the
+DT for reference but are no longer listed by any CPU.
+---
+ arch/arm64/boot/dts/qcom/msm8998.dtsi | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/msm8998.dtsi b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+index 53d1f9e76d58..22e24b81db96 100644
+--- a/arch/arm64/boot/dts/qcom/msm8998.dtsi
++++ b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+@@ -1010,7 +1010,7 @@ cpu0: cpu@0 {
+ 			operating-points-v2 = <&cpu0_opp_table>;
+ 			#cooling-cells = <2>;
+ 			capacity-dmips-mhz = <1024>;
+-			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
++			cpu-idle-states = <&little_cpu_sleep_0>;
+ 			next-level-cache = <&l2_0>;
+ 			l2_0: l2-cache {
+ 				compatible = "cache";
+@@ -1030,7 +1030,7 @@ cpu1: cpu@1 {
+ 			operating-points-v2 = <&cpu0_opp_table>;
+ 			#cooling-cells = <2>;
+ 			capacity-dmips-mhz = <1024>;
+-			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
++			cpu-idle-states = <&little_cpu_sleep_0>;
+ 			next-level-cache = <&l2_0>;
+ 		};
+ 
+@@ -1045,7 +1045,7 @@ cpu2: cpu@2 {
+ 			operating-points-v2 = <&cpu0_opp_table>;
+ 			#cooling-cells = <2>;
+ 			capacity-dmips-mhz = <1024>;
+-			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
++			cpu-idle-states = <&little_cpu_sleep_0>;
+ 			next-level-cache = <&l2_0>;
+ 		};
+ 
+@@ -1060,7 +1060,7 @@ cpu3: cpu@3 {
+ 			operating-points-v2 = <&cpu0_opp_table>;
+ 			#cooling-cells = <2>;
+ 			capacity-dmips-mhz = <1024>;
+-			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
++			cpu-idle-states = <&little_cpu_sleep_0>;
+ 			next-level-cache = <&l2_0>;
+ 		};
+ 
+@@ -1075,7 +1075,7 @@ cpu4: cpu@100 {
+ 			operating-points-v2 = <&cpu4_opp_table>;
+ 			#cooling-cells = <2>;
+ 			capacity-dmips-mhz = <1536>;
+-			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
++			cpu-idle-states = <&big_cpu_sleep_0>;
+ 			next-level-cache = <&l2_1>;
+ 			l2_1: l2-cache {
+ 				compatible = "cache";
+@@ -1095,7 +1095,7 @@ cpu5: cpu@101 {
+ 			operating-points-v2 = <&cpu4_opp_table>;
+ 			#cooling-cells = <2>;
+ 			capacity-dmips-mhz = <1536>;
+-			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
++			cpu-idle-states = <&big_cpu_sleep_0>;
+ 			next-level-cache = <&l2_1>;
+ 		};
+ 
+@@ -1110,7 +1110,7 @@ cpu6: cpu@102 {
+ 			operating-points-v2 = <&cpu4_opp_table>;
+ 			#cooling-cells = <2>;
+ 			capacity-dmips-mhz = <1536>;
+-			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
++			cpu-idle-states = <&big_cpu_sleep_0>;
+ 			next-level-cache = <&l2_1>;
+ 		};
+ 
+@@ -1125,7 +1125,7 @@ cpu7: cpu@103 {
+ 			operating-points-v2 = <&cpu4_opp_table>;
+ 			#cooling-cells = <2>;
+ 			capacity-dmips-mhz = <1536>;
+-			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
++			cpu-idle-states = <&big_cpu_sleep_0>;
+ 			next-level-cache = <&l2_1>;
+ 		};
+ 
+-- 
+2.55.0
+

@@ -1,0 +1,48 @@
+From 199896c75f5c6947e08f45d94c265c1616c99ad5 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Sat, 24 Oct 2026 11:15:43 +0000
+Subject: [PATCH 45/53] rpmsg: glink: wait 2 s, not 10 s, for an intent from
+ the remote
+
+joan's ADSP never grants intents. Every APPS->ADSP message then blocked
+for 10 s, and the sysmon notifications sent while the modem boots
+delayed it by ~30 s, past the modem's initialisation watchdog ("DOG
+detects stalled initialization"), which crash-looped it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ drivers/rpmsg/qcom_glink_native.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/rpmsg/qcom_glink_native.c b/drivers/rpmsg/qcom_glink_native.c
+index 2854de7e6b93..4bc4dadd87c2 100644
+--- a/drivers/rpmsg/qcom_glink_native.c
++++ b/drivers/rpmsg/qcom_glink_native.c
+@@ -213,6 +213,14 @@ static const struct rpmsg_endpoint_ops glink_endpoint_ops;
+ #define GLINK_CMD_RX_DONE_W_REUSE	14
+ #define GLINK_CMD_SIGNALS		15
+ 
++/*
++ * How long a sender waits for the remote to grant an intent. A remote that
++ * answers does so in milliseconds; joan's ADSP firmware never answers, and a
++ * 10 s wait per message there stalled the sysmon notifications of a modem
++ * boot past the modem's own initialisation watchdog.
++ */
++#define GLINK_INTENT_REQ_TIMEOUT	(2 * HZ)
++
+ #define GLINK_FEATURE_INTENTLESS	BIT(1)
+ 
+ #define NATIVE_DTR_SIG			NATIVE_DSR_SIG
+@@ -1455,7 +1463,7 @@ static int qcom_glink_request_intent(struct qcom_glink *glink,
+ 				 (READ_ONCE(channel->intent_req_result) > 0 &&
+ 				  READ_ONCE(channel->intent_received)) ||
+ 				 glink->abort_tx,
+-				 10 * HZ);
++				 GLINK_INTENT_REQ_TIMEOUT);
+ 	if (!ret) {
+ 		dev_err(glink->dev, "intent request timed out\n");
+ 		ret = -ETIMEDOUT;
+-- 
+2.55.0
+

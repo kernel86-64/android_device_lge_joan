@@ -52,8 +52,9 @@ curl -o .repo/local_manifests/joan.xml \
   https://codeberg.org/scada/android_local_manifest_joan/raw/branch/lineage-23.2/joan.xml
 repo sync -c -j8
 
-# A few fixes outside the device tree (recovery, USB, Wi-Fi HAL, Bluetooth,
-# libcutils memfd, OTA tooling). Re-run after every repo sync.
+# The joan kernel patches on top of ACK, plus a few fixes outside the
+# device tree (recovery, USB, Wi-Fi HAL, Bluetooth, libcutils memfd, OTA
+# tooling). Re-run after every repo sync.
 device/lge/joan/apply-patches.sh
 
 source build/envsetup.sh
@@ -61,8 +62,11 @@ breakfast joan
 m bacon
 ```
 
-The kernel (`kernel/lge/joan`) is built as part of the ROM with LineageOS's
-clang. The output is `out/target/product/joan/lineage-23.2-*-UNOFFICIAL-joan.zip`,
+The kernel is the Android Common Kernel `android17-6.18` (Linux 6.18.32),
+which the manifest checks out at commit `7626905e035e` into `kernel/lge/joan`,
+plus the 53 joan patches in `patches/kernel/lge/joan/`: ShapeShifter499's
+mainline V30 port, squashed per subsystem, and the backports and fixes this
+port needed. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-23.2-*-UNOFFICIAL-joan.zip`,
 together with `boot.img` and `recovery.img`.
 
 ## Installing
@@ -96,7 +100,7 @@ anything. They hold your IMEI and calibration.
 | Path | Repository |
 |---|---|
 | `device/lge/joan` | [android_device_lge_joan](https://codeberg.org/scada/android_device_lge_joan) |
-| `kernel/lge/joan` | [android_kernel_lge_joan](https://codeberg.org/scada/android_kernel_lge_joan) |
+| `kernel/lge/joan` | ACK [kernel/common](https://android.googlesource.com/kernel/common) at `7626905e035e` + `patches/kernel/lge/joan/` |
 | `vendor/lge/joan` | [proprietary_vendor_lge_joan](https://codeberg.org/scada/proprietary_vendor_lge_joan) |
 | libcamera prebuilts | built from [libcamera_joan](https://codeberg.org/scada/libcamera_joan), branch `joan-android` |
 

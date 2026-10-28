@@ -1,0 +1,131 @@
+From 3f35edb9552fbff34cf31a46c61b153ba676dd6c Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Thu, 22 Oct 2026 17:29:24 +0000
+Subject: [PATCH 10/53] joan: backport 7.x helpers the carried drivers use
+
+Make the GFP argument of k*alloc_obj*() optional (default_gfp()), as
+later kernels do; callers that pass flags are unaffected. Add a
+qcom_pas.h that maps the qcom_pas_*() names Venus uses onto qcom_scm.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ include/linux/firmware/qcom/qcom_pas.h | 33 ++++++++++++++++++++++++++
+ include/linux/gfp.h                    |  4 ++++
+ include/linux/slab.h                   | 32 ++++++++++++-------------
+ 3 files changed, 53 insertions(+), 16 deletions(-)
+ create mode 100644 include/linux/firmware/qcom/qcom_pas.h
+
+diff --git a/include/linux/firmware/qcom/qcom_pas.h b/include/linux/firmware/qcom/qcom_pas.h
+new file mode 100644
+index 000000000000..411462f3cc34
+--- /dev/null
++++ b/include/linux/firmware/qcom/qcom_pas.h
+@@ -0,0 +1,33 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Compatibility shim: later kernels split the Peripheral Authentication
++ * Service calls out of qcom_scm into their own qcom_pas API. Drivers
++ * carried over from those kernels use the new names; map them onto the
++ * qcom_scm implementation this kernel has.
++ */
++#ifndef __QCOM_PAS_H
++#define __QCOM_PAS_H
++
++#include <linux/firmware/qcom/qcom_scm.h>
++
++static inline bool qcom_pas_is_available(void)
++{
++	return qcom_scm_is_available();
++}
++
++static inline int qcom_pas_auth_and_reset(u32 peripheral)
++{
++	return qcom_scm_pas_auth_and_reset(peripheral);
++}
++
++static inline int qcom_pas_shutdown(u32 peripheral)
++{
++	return qcom_scm_pas_shutdown(peripheral);
++}
++
++static inline int qcom_pas_set_remote_state(u32 state, u32 id)
++{
++	return qcom_scm_set_remote_state(state, id);
++}
++
++#endif /* __QCOM_PAS_H */
+diff --git a/include/linux/gfp.h b/include/linux/gfp.h
+index bfad79590ea6..2178f26031d1 100644
+--- a/include/linux/gfp.h
++++ b/include/linux/gfp.h
+@@ -13,6 +13,10 @@
+ struct vm_area_struct;
+ struct mempolicy;
+ 
++/* Helper macro to avoid gfp flags if they are the default one */
++#define __default_gfp(a,b,...) b
++#define default_gfp(...) __default_gfp(,##__VA_ARGS__,GFP_KERNEL)
++
+ /* Convert GFP flags to their corresponding migrate type */
+ #define GFP_MOVABLE_MASK (__GFP_RECLAIMABLE|__GFP_MOVABLE)
+ #define GFP_MOVABLE_SHIFT 3
+diff --git a/include/linux/slab.h b/include/linux/slab.h
+index cbb64a2698f5..5ab95c6e3f22 100644
+--- a/include/linux/slab.h
++++ b/include/linux/slab.h
+@@ -990,8 +990,8 @@ void *kmalloc_nolock_noprof(size_t size, gfp_t gfp_flags, int node);
+  * Returns: newly allocated pointer to a @VAR_OR_TYPE on success, or NULL
+  * on failure.
+  */
+-#define kmalloc_obj(VAR_OR_TYPE, GFP)			\
+-	__alloc_objs(kmalloc, GFP, typeof(VAR_OR_TYPE), 1)
++#define kmalloc_obj(VAR_OR_TYPE, ...)			\
++	__alloc_objs(kmalloc, default_gfp(__VA_ARGS__), typeof(VAR_OR_TYPE), 1)
+ 
+ /**
+  * kmalloc_objs - Allocate an array of the given type
+@@ -1002,26 +1002,26 @@ void *kmalloc_nolock_noprof(size_t size, gfp_t gfp_flags, int node);
+  * Returns: newly allocated pointer to array of @VAR_OR_TYPE on success,
+  * or NULL on failure.
+  */
+-#define kmalloc_objs(VAR_OR_TYPE, COUNT, GFP)		\
+-	__alloc_objs(kmalloc, GFP, typeof(VAR_OR_TYPE), COUNT)
++#define kmalloc_objs(VAR_OR_TYPE, COUNT, ...)		\
++	__alloc_objs(kmalloc, default_gfp(__VA_ARGS__), typeof(VAR_OR_TYPE), COUNT)
+ 
+ /* All kzalloc aliases for kmalloc_(obj|objs|flex). */
+-#define kzalloc_obj(P, GFP)				\
+-	__alloc_objs(kzalloc, GFP, typeof(P), 1)
+-#define kzalloc_objs(P, COUNT, GFP)			\
+-	__alloc_objs(kzalloc, GFP, typeof(P), COUNT)
++#define kzalloc_obj(P, ...)				\
++	__alloc_objs(kzalloc, default_gfp(__VA_ARGS__), typeof(P), 1)
++#define kzalloc_objs(P, COUNT, ...)			\
++	__alloc_objs(kzalloc, default_gfp(__VA_ARGS__), typeof(P), COUNT)
+ 
+ /* All kvmalloc aliases for kmalloc_(obj|objs|flex). */
+-#define kvmalloc_obj(P, GFP)				\
+-	__alloc_objs(kvmalloc, GFP, typeof(P), 1)
+-#define kvmalloc_objs(P, COUNT, GFP)			\
+-	__alloc_objs(kvmalloc, GFP, typeof(P), COUNT)
++#define kvmalloc_obj(P, ...)				\
++	__alloc_objs(kvmalloc, default_gfp(__VA_ARGS__), typeof(P), 1)
++#define kvmalloc_objs(P, COUNT, ...)			\
++	__alloc_objs(kvmalloc, default_gfp(__VA_ARGS__), typeof(P), COUNT)
+ 
+ /* All kvzalloc aliases for kmalloc_(obj|objs|flex). */
+-#define kvzalloc_obj(P, GFP)				\
+-	__alloc_objs(kvzalloc, GFP, typeof(P), 1)
+-#define kvzalloc_objs(P, COUNT, GFP)			\
+-	__alloc_objs(kvzalloc, GFP, typeof(P), COUNT)
++#define kvzalloc_obj(P, ...)				\
++	__alloc_objs(kvzalloc, default_gfp(__VA_ARGS__), typeof(P), 1)
++#define kvzalloc_objs(P, COUNT, ...)			\
++	__alloc_objs(kvzalloc, default_gfp(__VA_ARGS__), typeof(P), COUNT)
+ 
+ #define kmem_buckets_alloc(_b, _size, _flags)	\
+ 	alloc_hooks(__kmalloc_node_noprof(PASS_BUCKET_PARAMS(_size, _b), _flags, NUMA_NO_NODE))
+-- 
+2.55.0
+

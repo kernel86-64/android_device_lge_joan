@@ -1,0 +1,32 @@
+From 35947e619c2ae17d324e7bd19680e5e94a8305e9 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Fri, 23 Oct 2026 18:40:13 +0000
+Subject: [PATCH 30/53] arm64: configs: joan_defconfig: build the GPIO SBU mux
+ in
+
+The PMI8998 Type-C connector depends on the SBU mux; with it modular the
+port driver defers forever, the controller never gets a data role and
+the Android USB gadget fails to start (-ENODEV).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ arch/arm64/configs/joan_defconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/configs/joan_defconfig b/arch/arm64/configs/joan_defconfig
+index f451058cb620..fadbc0d5fd82 100644
+--- a/arch/arm64/configs/joan_defconfig
++++ b/arch/arm64/configs/joan_defconfig
+@@ -957,7 +957,7 @@ CONFIG_UCSI_PMIC_GLINK=m
+ CONFIG_TYPEC_TPS6598X=m
+ CONFIG_TYPEC_HD3SS3220=m
+ CONFIG_TYPEC_MUX_FSA4480=m
+-CONFIG_TYPEC_MUX_GPIO_SBU=m
++CONFIG_TYPEC_MUX_GPIO_SBU=y
+ CONFIG_TYPEC_MUX_IT5205=m
+ CONFIG_TYPEC_MUX_NB7VPQ904M=m
+ CONFIG_TYPEC_MUX_PS883X=m
+-- 
+2.55.0
+

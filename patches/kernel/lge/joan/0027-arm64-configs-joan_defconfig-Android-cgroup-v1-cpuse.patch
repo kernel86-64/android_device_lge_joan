@@ -1,0 +1,66 @@
+From 4b3bdd9faf0e22fe1f113a3215ea01b6c65f8657 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Fri, 23 Oct 2026 14:38:44 +0000
+Subject: [PATCH 27/53] arm64: configs: joan_defconfig: Android cgroup v1
+ cpuset, cgroup extras, unicode
+
+Android still mounts cpuset as a v1 hierarchy; without CPUSETS_V1 init's
+SetupCgroups fails, no exec service can be placed in a process group and
+apexd-bootstrap never starts (reboot,bootloader,bootstrap-apexd-failed).
+Also the other cgroup controllers GKI enables and UNICODE for casefolded
+/data.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ arch/arm64/configs/joan_defconfig | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm64/configs/joan_defconfig b/arch/arm64/configs/joan_defconfig
+index d9f2fc4d58aa..56c48555dd37 100644
+--- a/arch/arm64/configs/joan_defconfig
++++ b/arch/arm64/configs/joan_defconfig
+@@ -27,6 +27,7 @@ CONFIG_CGROUP_PIDS=y
+ CONFIG_CGROUP_FREEZER=y
+ CONFIG_CGROUP_HUGETLB=y
+ CONFIG_CPUSETS=y
++CONFIG_CPUSETS_V1=y
+ CONFIG_CGROUP_DEVICE=y
+ CONFIG_CGROUP_CPUACCT=y
+ CONFIG_CGROUP_PERF=y
+@@ -68,6 +69,8 @@ CONFIG_MODULE_UNLOAD=y
+ CONFIG_MODULE_COMPRESS=y
+ CONFIG_MODULE_COMPRESS_ZSTD=y
+ CONFIG_MODULE_DECOMPRESS=y
++CONFIG_BLK_CGROUP_IOCOST=y
++CONFIG_BLK_CGROUP_IOPRIO=y
+ CONFIG_BLK_INLINE_ENCRYPTION=y
+ # CONFIG_CORE_DUMP_DEFAULT_ELF_HEADERS is not set
+ # CONFIG_COMPAT_BRK is not set
+@@ -135,6 +138,7 @@ CONFIG_NET_SCH_TAPRIO=m
+ CONFIG_NET_SCH_MQPRIO=m
+ CONFIG_NET_SCH_INGRESS=y
+ CONFIG_NET_CLS_BASIC=m
++CONFIG_NET_CLS_CGROUP=y
+ CONFIG_NET_CLS_BPF=y
+ CONFIG_NET_CLS_FLOWER=m
+ CONFIG_NET_CLS_ACT=y
+@@ -147,6 +151,7 @@ CONFIG_HSR=m
+ CONFIG_QRTR=y
+ CONFIG_QRTR_SMD=y
+ CONFIG_QRTR_MHI=m
++CONFIG_CGROUP_NET_PRIO=y
+ CONFIG_CAN=m
+ CONFIG_BT=y
+ CONFIG_BT_HIDP=m
+@@ -1327,6 +1332,7 @@ CONFIG_9P_FS=m
+ CONFIG_NLS_CODEPAGE_437=y
+ CONFIG_NLS_ASCII=y
+ CONFIG_NLS_ISO8859_1=y
++CONFIG_UNICODE=y
+ CONFIG_PROC_MEM_FORCE_PTRACE=y
+ CONFIG_SECURITY=y
+ CONFIG_SECURITY_NETWORK=y
+-- 
+2.55.0
+

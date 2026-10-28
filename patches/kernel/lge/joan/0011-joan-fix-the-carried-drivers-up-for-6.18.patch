@@ -1,0 +1,129 @@
+From 71f53199b870a681cbf8d0a59dfe83290591f41e Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Thu, 22 Oct 2026 17:29:24 +0000
+Subject: [PATCH 11/53] joan: fix the carried drivers up for 6.18
+
+- interconnect/msm8998: include mod_devicetable.h for of_device_id.
+- venus: num_pd_names is const in 6.18's dev_pm_domain_attach_data;
+  build a second descriptor for the SM8250 fallback instead.
+- ath10k: add the SKIP_HOST_CAP quirk flag and its check in QMI that
+  the snoc.c property parsing expects.
+- q6afe: size the port table by LPASS_MAX_PORT so the SLIMBUS_7/8 ports
+  fit.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ drivers/interconnect/qcom/msm8998.c            |  1 +
+ drivers/media/platform/qcom/venus/pm_helpers.c |  9 +++++++--
+ drivers/net/wireless/ath/ath10k/qmi.c          | 13 ++++++++++---
+ drivers/net/wireless/ath/ath10k/snoc.h         |  1 +
+ sound/soc/qcom/common.h                        |  1 +
+ sound/soc/qcom/qdsp6/q6afe.h                   |  4 +++-
+ 6 files changed, 23 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/interconnect/qcom/msm8998.c b/drivers/interconnect/qcom/msm8998.c
+index 40af021f0f18..178927e69ef9 100644
+--- a/drivers/interconnect/qcom/msm8998.c
++++ b/drivers/interconnect/qcom/msm8998.c
+@@ -21,6 +21,7 @@
+  * in the commit that ported them, not carried here.
+  */
+ 
++#include <linux/mod_devicetable.h>
+ #include <linux/device.h>
+ #include <linux/interconnect-provider.h>
+ #include <linux/module.h>
+diff --git a/drivers/media/platform/qcom/venus/pm_helpers.c b/drivers/media/platform/qcom/venus/pm_helpers.c
+index fea5084296ef..6cca63349187 100644
+--- a/drivers/media/platform/qcom/venus/pm_helpers.c
++++ b/drivers/media/platform/qcom/venus/pm_helpers.c
+@@ -1058,8 +1058,13 @@ static int vcodec_domains_get_v4(struct venus_core *core)
+ 	/* backwards compatibility for incomplete ABI SM8250 */
+ 	if (ret == -ENODEV &&
+ 	    of_device_is_compatible(dev->of_node, "qcom,sm8250-venus")) {
+-		opp_pd_data.num_pd_names--;
+-		ret = devm_pm_domain_attach_list(dev, &opp_pd_data, &core->opp_pmdomain);
++		struct dev_pm_domain_attach_data sm8250_pd_data = {
++			.pd_names = opp_pd_data.pd_names,
++			.num_pd_names = opp_pd_data.num_pd_names - 1,
++			.pd_flags = opp_pd_data.pd_flags,
++		};
++
++		ret = devm_pm_domain_attach_list(dev, &sm8250_pd_data, &core->opp_pmdomain);
+ 	}
+ 	if (ret < 0)
+ 		return ret;
+diff --git a/drivers/net/wireless/ath/ath10k/qmi.c b/drivers/net/wireless/ath/ath10k/qmi.c
+index f1f33af0170a..dc163bfeb17e 100644
+--- a/drivers/net/wireless/ath/ath10k/qmi.c
++++ b/drivers/net/wireless/ath/ath10k/qmi.c
+@@ -808,6 +808,7 @@ ath10k_qmi_ind_register_send_sync_msg(struct ath10k_qmi *qmi)
+ static void ath10k_qmi_event_server_arrive(struct ath10k_qmi *qmi)
+ {
+ 	struct ath10k *ar = qmi->ar;
++	struct ath10k_snoc *ar_snoc = ath10k_snoc_priv(ar);
+ 	int ret;
+ 
+ 	ret = ath10k_qmi_ind_register_send_sync_msg(qmi);
+@@ -819,9 +820,15 @@ static void ath10k_qmi_event_server_arrive(struct ath10k_qmi *qmi)
+ 		return;
+ 	}
+ 
+-	ret = ath10k_qmi_host_cap_send_sync(qmi);
+-	if (ret)
+-		return;
++	/*
++	 * Skip the host capability request for the firmware versions which
++	 * do not support this feature.
++	 */
++	if (!test_bit(ATH10K_SNOC_FLAG_SKIP_HOST_CAP_QUIRK, &ar_snoc->flags)) {
++		ret = ath10k_qmi_host_cap_send_sync(qmi);
++		if (ret)
++			return;
++	}
+ 
+ 	ret = ath10k_qmi_msa_mem_info_send_sync_msg(qmi);
+ 	if (ret)
+diff --git a/drivers/net/wireless/ath/ath10k/snoc.h b/drivers/net/wireless/ath/ath10k/snoc.h
+index d4bce1707696..403f35af34c5 100644
+--- a/drivers/net/wireless/ath/ath10k/snoc.h
++++ b/drivers/net/wireless/ath/ath10k/snoc.h
+@@ -50,6 +50,7 @@ enum ath10k_snoc_flags {
+ 	ATH10K_SNOC_FLAG_MODEM_STOPPED,
+ 	ATH10K_SNOC_FLAG_RECOVERY,
+ 	ATH10K_SNOC_FLAG_8BIT_HOST_CAP_QUIRK,
++	ATH10K_SNOC_FLAG_SKIP_HOST_CAP_QUIRK,
+ };
+ 
+ struct clk_bulk_data;
+diff --git a/sound/soc/qcom/common.h b/sound/soc/qcom/common.h
+index 6a41f5a12ff0..a49a0ae8523a 100644
+--- a/sound/soc/qcom/common.h
++++ b/sound/soc/qcom/common.h
+@@ -4,6 +4,7 @@
+ #ifndef __QCOM_SND_COMMON_H__
+ #define __QCOM_SND_COMMON_H__
+ 
++#include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
+ #include <sound/soc.h>
+ 
+ #define LPASS_MAX_PORT			(SLIMBUS_8_TX + 1)
+diff --git a/sound/soc/qcom/qdsp6/q6afe.h b/sound/soc/qcom/qdsp6/q6afe.h
+index 9c278577ffd3..6cf7f86e3af6 100644
+--- a/sound/soc/qcom/qdsp6/q6afe.h
++++ b/sound/soc/qcom/qdsp6/q6afe.h
+@@ -3,7 +3,9 @@
+ #ifndef __Q6AFE_H__
+ #define __Q6AFE_H__
+ 
+-#define AFE_PORT_MAX		137
++#include "../common.h"
++
++#define AFE_PORT_MAX		(LPASS_MAX_PORT)
+ 
+ #define MSM_AFE_PORT_TYPE_RX 0
+ #define MSM_AFE_PORT_TYPE_TX 1
+-- 
+2.55.0
+

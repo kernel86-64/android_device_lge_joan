@@ -1,0 +1,3622 @@
+From 14d9c25c85843d35a5a09f1173cc3e5e174c7e34 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Thu, 22 Oct 2026 16:57:00 +0000
+Subject: [PATCH 05/53] joan: sound (squashed from joan/master)
+
+---
+ drivers/slimbus/qcom-ngd-ctrl.c          |  65 +-
+ sound/soc/codecs/Kconfig                 |  20 +
+ sound/soc/codecs/Makefile                |   4 +
+ sound/soc/codecs/btfm-slim.c             | 650 +++++++++++++++++++
+ sound/soc/codecs/es9218p.c               | 757 +++++++++++++++++++++++
+ sound/soc/codecs/tfa989x.c               | 334 +++++++++-
+ sound/soc/codecs/wcd934x.c               |  37 +-
+ sound/soc/qcom/Kconfig                   |  12 +
+ sound/soc/qcom/common.h                  |   9 +
+ sound/soc/qcom/qdsp6/Makefile            |   1 +
+ sound/soc/qcom/qdsp6/q6adm.h             |  11 +
+ sound/soc/qcom/qdsp6/q6afe-dai.c         | 134 +++-
+ sound/soc/qcom/qdsp6/q6afe.c             | 166 ++++-
+ sound/soc/qcom/qdsp6/q6afe.h             |  17 +
+ sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c |  39 ++
+ sound/soc/qcom/qdsp6/q6routing.c         |  68 +-
+ sound/soc/qcom/qdsp6/q6voice.c           | 612 ++++++++++++++++++
+ sound/soc/qcom/sdm845.c                  |  56 ++
+ 18 files changed, 2963 insertions(+), 29 deletions(-)
+ create mode 100644 sound/soc/codecs/btfm-slim.c
+ create mode 100644 sound/soc/codecs/es9218p.c
+ create mode 100644 sound/soc/qcom/qdsp6/q6voice.c
+
+diff --git a/drivers/slimbus/qcom-ngd-ctrl.c b/drivers/slimbus/qcom-ngd-ctrl.c
+index db45654f1695..5db605a3f8fa 100644
+--- a/drivers/slimbus/qcom-ngd-ctrl.c
++++ b/drivers/slimbus/qcom-ngd-ctrl.c
+@@ -62,8 +62,12 @@
+ #define SLIMBUS_QMI_SELECT_INSTANCE_REQ_MAX_MSG_LEN	14
+ #define SLIMBUS_QMI_SELECT_INSTANCE_RESP_MAX_MSG_LEN	7
+ #define SLIMBUS_QMI_CHECK_FRAMER_STAT_RESP_MAX_MSG_LEN	7
+-/* QMI response timeout of 500ms */
+-#define SLIMBUS_QMI_RESP_TOUT	1000
++/*
++ * QMI response timeout.  The ADSP can take well over a second to answer
++ * while it is still initialising, so LG's msm8998 kernel carries 3 s here
++ * as a board workaround; with 1 s the handshake is lost intermittently.
++ */
++#define SLIMBUS_QMI_RESP_TOUT	3000
+ 
+ /* User defined commands */
+ #define SLIM_USR_MC_GENERIC_ACK	0x25
+@@ -563,6 +567,25 @@ static void qcom_slim_ngd_tx_msg_dma_cb(void *args)
+ 	spin_unlock_irqrestore(&ctrl->tx_buf_lock, flags);
+ }
+ 
++/*
++ * A caller that gave up waiting for its message to go out is about to
++ * return, taking the on-stack completion it handed to
++ * qcom_slim_ngd_tx_msg_get() with it.  Detach that completion from the
++ * descriptor so a late DMA callback cannot complete() dead stack.
++ */
++static void qcom_slim_ngd_tx_msg_abandon(struct qcom_slim_ngd_ctrl *ctrl,
++					 struct completion *comp)
++{
++	unsigned long flags;
++	int i;
++
++	spin_lock_irqsave(&ctrl->tx_buf_lock, flags);
++	for (i = 0; i < QCOM_SLIM_NGD_DESC_NUM; i++)
++		if (ctrl->txdesc[i].comp == comp)
++			ctrl->txdesc[i].comp = NULL;
++	spin_unlock_irqrestore(&ctrl->tx_buf_lock, flags);
++}
++
+ static int qcom_slim_ngd_tx_msg_post(struct qcom_slim_ngd_ctrl *ctrl,
+ 				     void *buf, int len)
+ {
+@@ -895,6 +918,7 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
+ 	if (!time_left) {
+ 		dev_err(sctrl->dev, "TX timed out:MC:0x%x,mt:0x%x", txn->mc,
+ 					txn->mt);
++		qcom_slim_ngd_tx_msg_abandon(ctrl, &tx_sent);
+ 		mutex_unlock(&ctrl->tx_lock);
+ 		return -ETIMEDOUT;
+ 	}
+@@ -1018,7 +1042,13 @@ static int qcom_slim_ngd_enable_stream(struct slim_stream_runtime *rt)
+ 		if (txn.msg->num_bytes == 0) {
+ 			int exp = 0, coef = 0;
+ 
+-			wbuf[txn.msg->num_bytes++] = sdev->laddr;
++			/*
++			 * Only the low five bits carry the client number;
++			 * the ADSP reads the bits above them as the data
++			 * format, so a full logical address such as 0xcf
++			 * would be taken as data format 6.
++			 */
++			wbuf[txn.msg->num_bytes++] = sdev->laddr & 0x1f;
+ 			wbuf[txn.msg->num_bytes] = rt->bps >> 2 |
+ 						   (port->ch.aux_fmt << 6);
+ 
+@@ -1375,6 +1405,15 @@ static int qcom_slim_ngd_qmi_new_server(struct qmi_handle *hdl,
+ 
+ 	complete(&ctrl->qmi_up);
+ 
++	/*
++	 * The up worker waits only a second for this server.  If the ADSP
++	 * registers the service after that window has closed, nothing else
++	 * would ever enable the controller, so run the worker again.  It
++	 * rechecks the controller state under ssr_lock before acting.
++	 */
++	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN)
++		schedule_work(&ctrl->ngd_up_work);
++
+ 	return 0;
+ }
+ 
+@@ -1456,12 +1495,15 @@ static void qcom_slim_ngd_up_worker(struct work_struct *work)
+ 	/* Make sure qmi service is up before continuing */
+ 	if (!wait_for_completion_interruptible_timeout(&ctrl->qmi_up,
+ 						       msecs_to_jiffies(MSEC_PER_SEC))) {
+-		dev_err(ctrl->dev, "QMI wait timeout\n");
++		/* Not an error: new_server runs this worker again */
++		dev_dbg(ctrl->dev, "QMI wait timeout, waiting for new_server\n");
+ 		return;
+ 	}
+ 
+ 	mutex_lock(&ctrl->ssr_lock);
+-	qcom_slim_ngd_enable(ctrl, true);
++	/* A late new_server may have queued a second run; enable only once. */
++	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN)
++		qcom_slim_ngd_enable(ctrl, true);
+ 	mutex_unlock(&ctrl->ssr_lock);
+ }
+ 
+@@ -1557,8 +1599,17 @@ static int of_qcom_slim_ngd_register(struct device *parent,
+ 			of_node_put(node);
+ 			return ret;
+ 		}
+-		ngd->base = ctrl->base + ngd->id * data->offset +
+-					(ngd->id - 1) * data->size;
++		/*
++		 * The per-instance register block sits at an odd/even split
++		 * inside the region: odd instances at +offset, even ones at
++		 * +2 * offset (downstream slim-msm-ngd.c NGD_BASE_V2).  The
++		 * previous id * offset + (id - 1) * size expression only
++		 * ever produced the right address for instance 1 and sent
++		 * instance 3 (msm8998 second engine) to a register block
++		 * that does not exist.
++		 */
++		ngd->base = ctrl->base + ((ngd->id % 2) ? data->offset :
++							2 * data->offset);
+ 
+ 		return 0;
+ 	}
+diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
+index e63b98d46423..e84c4fe22625 100644
+--- a/sound/soc/codecs/Kconfig
++++ b/sound/soc/codecs/Kconfig
+@@ -122,6 +122,7 @@ config SND_SOC_ALL_CODECS
+ 	imply SND_SOC_ES8328_I2C
+ 	imply SND_SOC_ES8375
+ 	imply SND_SOC_ES8389
++	imply SND_SOC_ES9218P
+ 	imply SND_SOC_ES7134
+ 	imply SND_SOC_ES7241
+ 	imply SND_SOC_FRAMER
+@@ -1256,6 +1257,14 @@ config SND_SOC_ES8389
+ 	tristate "Everest Semi ES8389 CODEC"
+ 	depends on I2C
+ 
++config SND_SOC_ES9218P
++	tristate "ESS Technology ES9218P headphone DAC"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  Enable support for the ESS Technology ES9218P headphone DAC and
++	  amplifier, as used for the "Quad DAC" on the LG V30.
++
+ config SND_SOC_FRAMER
+ 	tristate "Framer codec"
+ 	depends on GENERIC_FRAMER
+@@ -2325,6 +2334,17 @@ config SND_SOC_WCD_CLASSH
+ config SND_SOC_WCD_COMMON
+ 	tristate
+ 
++config SND_SOC_BTFM_SLIM
++	tristate "Qualcomm WCN399x Bluetooth/FM SLIMbus audio"
++	depends on SLIMBUS
++	help
++	  Enable the SLIMbus audio path of the Qualcomm WCN399x Bluetooth
++	  combination chip, as found on the LG V30 (joan).  The FM receiver
++	  digitises the analogue baseband at 48 kHz and streams it over the
++	  second msm8998 SLIMbus engine to the ADSP (SLIMBUS_8_TX backend);
++	  the same slave also carries SCO/A2DP audio ports.  Ported from the
++	  Qualcomm/LG downstream btfm_slim drivers.
++
+ config SND_SOC_WCD9335
+ 	tristate "WCD9335 Codec"
+ 	depends on SLIMBUS
+diff --git a/sound/soc/codecs/Makefile b/sound/soc/codecs/Makefile
+index da4077463278..d2c3e51d6672 100644
+--- a/sound/soc/codecs/Makefile
++++ b/sound/soc/codecs/Makefile
+@@ -136,6 +136,7 @@ snd-soc-es8328-i2c-y := es8328-i2c.o
+ snd-soc-es8328-spi-y := es8328-spi.o
+ snd-soc-es8375-y := es8375.o
+ snd-soc-es8389-y := es8389.o
++snd-soc-es9218p-y := es9218p.o
+ snd-soc-framer-y := framer-codec.o
+ snd-soc-fs-amp-lib-y := fs-amp-lib.o
+ snd-soc-fs210x-y := fs210x.o
+@@ -348,6 +349,7 @@ snd-soc-uda1380-y := uda1380.o
+ snd-soc-wcd-classh-y := wcd-clsh-v2.o
+ snd-soc-wcd-common-y := wcd-common.o
+ snd-soc-wcd-mbhc-y := wcd-mbhc-v2.o
++snd-soc-btfm-slim-y := btfm-slim.o
+ snd-soc-wcd9335-y := wcd9335.o
+ snd-soc-wcd934x-y := wcd934x.o
+ snd-soc-wcd937x-y := wcd937x.o
+@@ -568,6 +570,7 @@ obj-$(CONFIG_SND_SOC_ES8328_I2C)+= snd-soc-es8328-i2c.o
+ obj-$(CONFIG_SND_SOC_ES8328_SPI)+= snd-soc-es8328-spi.o
+ obj-$(CONFIG_SND_SOC_ES8375)    += snd-soc-es8375.o
+ obj-$(CONFIG_SND_SOC_ES8389)    += snd-soc-es8389.o
++obj-$(CONFIG_SND_SOC_ES9218P)	+= snd-soc-es9218p.o
+ obj-$(CONFIG_SND_SOC_FRAMER)	+= snd-soc-framer.o
+ obj-$(CONFIG_SND_SOC_FS_AMP_LIB)+= snd-soc-fs-amp-lib.o
+ obj-$(CONFIG_SND_SOC_FS210X)	+= snd-soc-fs210x.o
+@@ -781,6 +784,7 @@ obj-$(CONFIG_SND_SOC_UDA1380)	+= snd-soc-uda1380.o
+ obj-$(CONFIG_SND_SOC_WCD_CLASSH)	+= snd-soc-wcd-classh.o
+ obj-$(CONFIG_SND_SOC_WCD_COMMON)	+= snd-soc-wcd-common.o
+ obj-$(CONFIG_SND_SOC_WCD_MBHC)	+= snd-soc-wcd-mbhc.o
++obj-$(CONFIG_SND_SOC_BTFM_SLIM)	+= snd-soc-btfm-slim.o
+ obj-$(CONFIG_SND_SOC_WCD9335)	+= snd-soc-wcd9335.o
+ obj-$(CONFIG_SND_SOC_WCD934X)	+= snd-soc-wcd934x.o
+ obj-$(CONFIG_SND_SOC_WCD937X)	+= snd-soc-wcd937x.o
+diff --git a/sound/soc/codecs/btfm-slim.c b/sound/soc/codecs/btfm-slim.c
+new file mode 100644
+index 000000000000..9c92cce1cf9a
+--- /dev/null
++++ b/sound/soc/codecs/btfm-slim.c
+@@ -0,0 +1,650 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * SLIMbus audio path for the Qualcomm WCN399x Bluetooth/FM combination
++ * chip, as used on the LG V30 (joan).
++ *
++ * The WCN3990 exposes two SLIMbus devices on the msm8998's second NGD
++ * engine: a ported generic device (PGD, device index 1) that owns the
++ * slave ports, and its interface device (IFD, device index 0) carrying
++ * the port configuration registers at offset 0x800.  The FM receiver
++ * inside the chip digitises the analogue baseband at 48 kHz and streams
++ * it out through the two FM TX slave ports (PGD ports 1 and 2) as a
++ * two-channel group, which the ADSP receives on its SLIMBUS_8_TX AFE
++ * port.  The remaining ports (TX 0, RX 16/17) carry SCO/A2DP audio.
++ *
++ * Ported from the Qualcomm/LG Android kernel sources
++ * (android_kernel_lge_msm8998, Copyright (c) 2016-2017, The Linux
++ * Foundation, GPL-2.0):
++ *
++ *   drivers/bluetooth/btfm_slim.c         - SLIMbus client (PGD/IFD element
++ *                                           access, logical addresses)
++ *   drivers/bluetooth/btfm_slim_codec.c   - ASoC DAIs and channel mapping
++ *   drivers/bluetooth/btfm_slim_wcn3990.c - WCN3990 port map and port
++ *                                           enable/disable programming
++ *
++ * adapted to the mainline slimbus stream API and the modern
++ * snd_soc_component interface.  The chip must be powered (Bluetooth
++ * controller up / FM receiver on) before a stream can run, exactly as
++ * downstream; the FM receiver driver takes care of that part.
++ */
++
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/slimbus.h>
++#include <sound/pcm.h>
++#include <sound/pcm_params.h>
++#include <sound/soc.h>
++
++/* WCN3990 interface-device register block (downstream btfm_slim_wcn3990.h) */
++#define WCN3990_SLIM_REG_OFFSET			0x0800
++
++#define WCN3990_SB_SLAVE_HW_REV_MSB		0x0001
++#define WCN3990_SB_SLAVE_HW_REV_LSB		0x0002
++
++#define WCN3990_SB_PGD_TX_PORT_CFG(n)		(0x0050 + (n))
++#define WCN3990_SB_PGD_RX_PORT_CFG(n)		(0x0040 + (n))
++#define WCN3990_SB_PGD_TX_PORT_MULTI_CH_0(n)	(0x0100 + 0x4 * (n))
++#define WCN3990_SB_PGD_RX_PORT_MULTI_CH_0(n)	(0x0180 + 0x4 * (n))
++#define WCN3990_SB_PGD_TX_PORT_OR_UR_CFG(n)	(0x01f0 + (n))
++
++#define WCN3990_PORT_ENABLE			BIT(0)
++#define WCN3990_PORT_WM_L1			(0x1 << 1)
++#define WCN3990_PORT_WM_L8			(0x8 << 1)
++#define WCN3990_PORT_WM_LB			(0xb << 1)
++#define WCN3990_OVERRUN_AUTO_RECOVERY		BIT(1)
++#define WCN3990_UNDERRUN_AUTO_RECOVERY		BIT(0)
++
++/* WCN3990 PGD port assignment (downstream btfm_slim_wcn3990.h) */
++#define WCN3990_PORT_TX_SCO			0
++#define WCN3990_PORT_TX1_FM			1
++#define WCN3990_PORT_TX2_FM			2
++#define WCN3990_PORT_RX_SCO			16
++#define WCN3990_PORT_RX_A2P			17
++
++/* Enumeration address of the WCN3990 devices (downstream msm8998.dtsi) */
++#define WCN3990_MANF_ID				0x0217
++#define WCN3990_PROD_CODE			0x0220
++
++enum {
++	BTFM_FM_SLIM_TX = 0,
++	BTFM_BT_SCO_SLIM_TX,
++	BTFM_BT_SCO_A2DP_SLIM_RX,
++	BTFM_BT_SPLIT_A2DP_SLIM_RX,
++	BTFM_SLIM_NUM_DAIS,
++};
++
++struct btfm_slim_ch {
++	u16 port;
++	unsigned int ch_num;
++};
++
++struct btfm_slim {
++	struct slim_device *sdev;	/* ported generic device */
++	struct slim_device *sidev;	/* interface device */
++	struct mutex io_lock;
++	bool enabled;
++	bool channels_set;
++	/* ADSP channel allocation handed over by the machine driver */
++	struct btfm_slim_ch tx_chs[3];
++	struct btfm_slim_ch rx_chs[2];
++	unsigned int rate;
++	unsigned int ch_count;
++	struct slim_stream_runtime *sruntime;
++};
++
++static int btfm_slim_write_ifd(struct btfm_slim *btfm, u16 reg, u8 val)
++{
++	int ret;
++
++	mutex_lock(&btfm->io_lock);
++	ret = slim_write(btfm->sidev, WCN3990_SLIM_REG_OFFSET + reg, 1, &val);
++	mutex_unlock(&btfm->io_lock);
++
++	if (ret)
++		dev_err(&btfm->sdev->dev, "IFD write 0x%04x failed: %d\n",
++			reg, ret);
++
++	return ret;
++}
++
++static int btfm_slim_read_ifd(struct btfm_slim *btfm, u16 reg, u8 *val)
++{
++	int ret;
++
++	mutex_lock(&btfm->io_lock);
++	ret = slim_read(btfm->sidev, WCN3990_SLIM_REG_OFFSET + reg, 1, val);
++	mutex_unlock(&btfm->io_lock);
++
++	if (ret)
++		dev_err(&btfm->sdev->dev, "IFD read 0x%04x failed: %d\n",
++			reg, ret);
++
++	return ret;
++}
++
++/*
++ * Probe the slave (downstream btfm_slim_chrk_hw_init).  The chip only
++ * answers once it is powered, so this runs at DAI startup, not at
++ * slimbus device probe.
++ */
++static int btfm_slim_hw_init(struct btfm_slim *btfm)
++{
++	u8 rev_msb, rev_lsb;
++	int ret;
++
++	if (btfm->enabled)
++		return 0;
++
++	ret = btfm_slim_read_ifd(btfm, WCN3990_SB_SLAVE_HW_REV_MSB, &rev_msb);
++	if (ret)
++		return ret;
++
++	ret = btfm_slim_read_ifd(btfm, WCN3990_SB_SLAVE_HW_REV_LSB, &rev_lsb);
++	if (ret)
++		return ret;
++
++	dev_dbg(&btfm->sdev->dev, "WCN3990 HW rev %u.%u.%u\n",
++		(rev_msb & 0xf0) >> 4, rev_msb & 0x0f, rev_lsb);
++
++	btfm->enabled = true;
++
++	return 0;
++}
++
++static void btfm_slim_hw_deinit(struct btfm_slim *btfm)
++{
++	btfm->enabled = false;
++}
++
++/*
++ * Slave port programming, ported from downstream
++ * btfm_slim_chrk_enable_port(): the multi-channel register selects the
++ * local channel slots feeding the port (TX slots equal the port number,
++ * RX slots count from port 16), the OR/UR register arms the automatic
++ * underrun/overrun recovery, and the port config register sets the
++ * watermark before enabling the port.
++ */
++static int btfm_slim_enable_fm_port(struct btfm_slim *btfm, u16 port,
++				    bool enable)
++{
++	u8 val;
++	int ret;
++
++	/* the two FM TX ports share the two-channel group */
++	val = BIT(WCN3990_PORT_TX1_FM) | BIT(WCN3990_PORT_TX2_FM);
++	ret = btfm_slim_write_ifd(btfm,
++				  WCN3990_SB_PGD_TX_PORT_MULTI_CH_0(port), val);
++	if (ret)
++		return ret;
++
++	if (enable) {
++		val = WCN3990_OVERRUN_AUTO_RECOVERY |
++		      WCN3990_UNDERRUN_AUTO_RECOVERY;
++		ret = btfm_slim_write_ifd(btfm,
++				WCN3990_SB_PGD_TX_PORT_OR_UR_CFG(port), val);
++		if (ret)
++			return ret;
++
++		val = WCN3990_PORT_ENABLE | WCN3990_PORT_WM_L8;
++	} else {
++		val = 0;
++	}
++
++	return btfm_slim_write_ifd(btfm, WCN3990_SB_PGD_TX_PORT_CFG(port), val);
++}
++
++static int btfm_slim_enable_sco_tx_port(struct btfm_slim *btfm, bool enable)
++{
++	u8 val;
++	int ret;
++
++	val = BIT(WCN3990_PORT_TX_SCO);
++	ret = btfm_slim_write_ifd(btfm,
++			WCN3990_SB_PGD_TX_PORT_MULTI_CH_0(WCN3990_PORT_TX_SCO),
++			val);
++	if (ret)
++		return ret;
++
++	if (enable) {
++		val = WCN3990_OVERRUN_AUTO_RECOVERY |
++		      WCN3990_UNDERRUN_AUTO_RECOVERY;
++		ret = btfm_slim_write_ifd(btfm,
++			WCN3990_SB_PGD_TX_PORT_OR_UR_CFG(WCN3990_PORT_TX_SCO),
++			val);
++		if (ret)
++			return ret;
++
++		val = WCN3990_PORT_ENABLE | WCN3990_PORT_WM_L1;
++	} else {
++		val = 0;
++	}
++
++	return btfm_slim_write_ifd(btfm,
++			WCN3990_SB_PGD_TX_PORT_CFG(WCN3990_PORT_TX_SCO), val);
++}
++
++static int btfm_slim_enable_rx_port(struct btfm_slim *btfm, u16 port,
++				    bool enable)
++{
++	u8 val = 0;
++	int ret;
++
++	if (enable) {
++		val = WCN3990_PORT_ENABLE | WCN3990_PORT_WM_LB;
++		ret = btfm_slim_write_ifd(btfm,
++			WCN3990_SB_PGD_RX_PORT_MULTI_CH_0(port - 16), BIT(0));
++		if (ret)
++			return ret;
++	}
++
++	return btfm_slim_write_ifd(btfm, WCN3990_SB_PGD_RX_PORT_CFG(port - 16),
++				   val);
++}
++
++static int btfm_slim_enable_ports(struct btfm_slim *btfm, int dai_id,
++				  bool enable)
++{
++	switch (dai_id) {
++	case BTFM_FM_SLIM_TX:
++		return btfm_slim_enable_fm_port(btfm, WCN3990_PORT_TX1_FM,
++						enable) ?:
++		       btfm_slim_enable_fm_port(btfm, WCN3990_PORT_TX2_FM,
++						enable);
++	case BTFM_BT_SCO_SLIM_TX:
++		return btfm_slim_enable_sco_tx_port(btfm, enable);
++	case BTFM_BT_SCO_A2DP_SLIM_RX:
++		return btfm_slim_enable_rx_port(btfm, WCN3990_PORT_RX_SCO,
++						enable);
++	case BTFM_BT_SPLIT_A2DP_SLIM_RX:
++		return btfm_slim_enable_rx_port(btfm, WCN3990_PORT_RX_A2P,
++						enable);
++	default:
++		return -EINVAL;
++	}
++}
++
++static int btfm_slim_dai_startup(struct snd_pcm_substream *substream,
++				 struct snd_soc_dai *dai)
++{
++	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
++
++	dev_dbg(dai->dev, "%s: dai %s\n", __func__, dai->name);
++
++	return btfm_slim_hw_init(btfm);
++}
++
++static void btfm_slim_dai_shutdown(struct snd_pcm_substream *substream,
++				   struct snd_soc_dai *dai)
++{
++	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
++
++	if (btfm->sruntime) {
++		slim_stream_disable(btfm->sruntime);
++		slim_stream_unprepare(btfm->sruntime);
++		slim_stream_free(btfm->sruntime);
++		btfm->sruntime = NULL;
++	}
++
++	btfm_slim_enable_ports(btfm, dai->id, false);
++	btfm_slim_hw_deinit(btfm);
++}
++
++static int btfm_slim_dai_hw_params(struct snd_pcm_substream *substream,
++				   struct snd_pcm_hw_params *params,
++				   struct snd_soc_dai *dai)
++{
++	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
++
++	btfm->rate = params_rate(params);
++
++	dev_dbg(dai->dev, "%s: dai %s rate %u ch %u\n", __func__, dai->name,
++		btfm->rate, params_channels(params));
++
++	/*
++	 * The FM group always carries both TX ports, exactly as
++	 * downstream (grp = true, nchan = 2); a mono FE taps one of the
++	 * two channels of the group at the ADM routing stage.
++	 */
++	btfm->ch_count = (dai->id == BTFM_FM_SLIM_TX) ? 2 : 1;
++
++	return 0;
++}
++
++static int btfm_slim_dai_prepare(struct snd_pcm_substream *substream,
++				 struct snd_soc_dai *dai)
++{
++	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
++	struct slim_stream_config cfg = {0};
++	const struct btfm_slim_ch *chs;
++	int nports, i, ret;
++
++	switch (dai->id) {
++	case BTFM_FM_SLIM_TX:
++		chs = &btfm->tx_chs[0];
++		nports = 2;
++		break;
++	case BTFM_BT_SCO_SLIM_TX:
++		chs = &btfm->tx_chs[2];
++		nports = 1;
++		break;
++	case BTFM_BT_SCO_A2DP_SLIM_RX:
++		chs = &btfm->rx_chs[0];
++		nports = 1;
++		break;
++	case BTFM_BT_SPLIT_A2DP_SLIM_RX:
++		chs = &btfm->rx_chs[1];
++		nports = 1;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	if (!btfm->channels_set) {
++		dev_err(dai->dev, "no channel map assigned for %s\n",
++			dai->name);
++		return -EINVAL;
++	}
++
++	/* one shared stream state: a second open would leak the first */
++	if (btfm->sruntime) {
++		dev_err(dai->dev, "%s: stream already active\n", dai->name);
++		return -EBUSY;
++	}
++
++	cfg.rate = btfm->rate;
++	cfg.bps = 16;
++	cfg.ch_count = btfm->ch_count;
++	cfg.direction = substream->stream;
++	cfg.port_mask = 0;
++	cfg.chs = kcalloc(btfm->ch_count, sizeof(*cfg.chs), GFP_KERNEL);
++	if (!cfg.chs)
++		return -ENOMEM;
++
++	for (i = 0; i < btfm->ch_count && i < nports; i++) {
++		cfg.chs[i] = chs[i].ch_num;
++		cfg.port_mask |= BIT(chs[i].port);
++	}
++
++	ret = btfm_slim_enable_ports(btfm, dai->id, true);
++	if (ret)
++		goto err_free_chs;
++
++	btfm->sruntime = slim_stream_allocate(btfm->sdev, "WCN399x-BTFM");
++	if (IS_ERR(btfm->sruntime)) {
++		ret = PTR_ERR(btfm->sruntime);
++		btfm->sruntime = NULL;
++		goto err_disable_ports;
++	}
++
++	ret = slim_stream_prepare(btfm->sruntime, &cfg);
++	if (ret) {
++		slim_stream_unprepare(btfm->sruntime);
++		goto err_free_stream;
++	}
++
++	ret = slim_stream_enable(btfm->sruntime);
++	if (ret)
++		goto err_unprepare;
++
++	kfree(cfg.chs);
++
++	return 0;
++
++err_unprepare:
++	slim_stream_unprepare(btfm->sruntime);
++err_free_stream:
++	slim_stream_free(btfm->sruntime);
++	btfm->sruntime = NULL;
++err_disable_ports:
++	btfm_slim_enable_ports(btfm, dai->id, false);
++err_free_chs:
++	kfree(cfg.chs);
++
++	return ret;
++}
++
++static int btfm_slim_set_channel_map(struct snd_soc_dai *dai,
++				     unsigned int tx_num,
++				     const unsigned int *tx_slot,
++				     unsigned int rx_num,
++				     const unsigned int *rx_slot)
++{
++	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
++	static const u16 tx_ports[3] = {
++		WCN3990_PORT_TX1_FM, WCN3990_PORT_TX2_FM, WCN3990_PORT_TX_SCO,
++	};
++	static const u16 rx_ports[2] = {
++		WCN3990_PORT_RX_SCO, WCN3990_PORT_RX_A2P,
++	};
++	unsigned int i;
++
++	/*
++	 * The machine driver hands us the ADSP channel allocation for the
++	 * whole slave (downstream msm_wcn_init), in table order: two FM
++	 * TX channels, one SCO TX channel, one SCO/A2DP and one split
++	 * A2DP RX channel.
++	 */
++	if (tx_num > 3 || rx_num > 2 || !tx_slot || !rx_slot) {
++		dev_err(dai->dev, "invalid channel map tx %u rx %u\n",
++			tx_num, rx_num);
++		return -EINVAL;
++	}
++
++	for (i = 0; i < tx_num; i++) {
++		btfm->tx_chs[i].ch_num = tx_slot[i];
++		btfm->tx_chs[i].port = tx_ports[i];
++	}
++	for (i = 0; i < rx_num; i++) {
++		btfm->rx_chs[i].ch_num = rx_slot[i];
++		btfm->rx_chs[i].port = rx_ports[i];
++	}
++
++	btfm->channels_set = true;
++
++	return 0;
++}
++
++static int btfm_slim_get_channel_map(const struct snd_soc_dai *dai,
++				     unsigned int *tx_num,
++				     unsigned int *tx_slot,
++				     unsigned int *rx_num,
++				     unsigned int *rx_slot)
++{
++	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
++
++	if (!btfm->channels_set)
++		return -EINVAL;
++
++	switch (dai->id) {
++	case BTFM_FM_SLIM_TX:
++		tx_slot[0] = btfm->tx_chs[0].ch_num;
++		tx_slot[1] = btfm->tx_chs[1].ch_num;
++		*tx_num = 2;
++		*rx_num = 0;
++		break;
++	case BTFM_BT_SCO_SLIM_TX:
++		tx_slot[0] = btfm->tx_chs[2].ch_num;
++		*tx_num = 1;
++		*rx_num = 0;
++		break;
++	case BTFM_BT_SCO_A2DP_SLIM_RX:
++		rx_slot[0] = btfm->rx_chs[0].ch_num;
++		*tx_num = 0;
++		*rx_num = 1;
++		break;
++	case BTFM_BT_SPLIT_A2DP_SLIM_RX:
++		rx_slot[0] = btfm->rx_chs[1].ch_num;
++		*tx_num = 0;
++		*rx_num = 1;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static const struct snd_soc_dai_ops btfm_slim_dai_ops = {
++	.startup	= btfm_slim_dai_startup,
++	.shutdown	= btfm_slim_dai_shutdown,
++	.hw_params	= btfm_slim_dai_hw_params,
++	.prepare	= btfm_slim_dai_prepare,
++	.set_channel_map = btfm_slim_set_channel_map,
++	.get_channel_map = btfm_slim_get_channel_map,
++};
++
++static struct snd_soc_dai_driver btfm_slim_dais[] = {
++	{
++		/* FM audio, WCN3990 -> ADSP (two-channel group) */
++		.name = "btfm_fm_slim_tx",
++		.id = BTFM_FM_SLIM_TX,
++		.capture = {
++			.stream_name = "FM TX Capture",
++			.rates = SNDRV_PCM_RATE_48000,
++			.formats = SNDRV_PCM_FMTBIT_S16_LE,
++			.rate_min = 48000,
++			.rate_max = 48000,
++			.channels_min = 1,
++			.channels_max = 2,
++		},
++		.ops = &btfm_slim_dai_ops,
++	},
++	{
++		/* Bluetooth SCO voice uplink: bt -> modem */
++		.name = "btfm_bt_sco_slim_tx",
++		.id = BTFM_BT_SCO_SLIM_TX,
++		.capture = {
++			.stream_name = "SCO TX Capture",
++			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000,
++			.formats = SNDRV_PCM_FMTBIT_S16_LE,
++			.rate_min = 8000,
++			.rate_max = 16000,
++			.channels_min = 1,
++			.channels_max = 1,
++		},
++		.ops = &btfm_slim_dai_ops,
++	},
++	{
++		/* Bluetooth SCO voice downlink: modem -> bt, or A2DP */
++		.name = "btfm_bt_sco_a2dp_slim_rx",
++		.id = BTFM_BT_SCO_A2DP_SLIM_RX,
++		.playback = {
++			.stream_name = "SCO A2DP RX Playback",
++			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
++				 SNDRV_PCM_RATE_48000,
++			.formats = SNDRV_PCM_FMTBIT_S16_LE,
++			.rate_min = 8000,
++			.rate_max = 48000,
++			.channels_min = 1,
++			.channels_max = 1,
++		},
++		.ops = &btfm_slim_dai_ops,
++	},
++	{
++		/* Bluetooth split A2DP data: ADSP -> bt */
++		.name = "btfm_bt_split_a2dp_slim_rx",
++		.id = BTFM_BT_SPLIT_A2DP_SLIM_RX,
++		.playback = {
++			.stream_name = "SPLIT A2DP Playback",
++			.rates = SNDRV_PCM_RATE_48000,
++			.formats = SNDRV_PCM_FMTBIT_S16_LE,
++			.rate_min = 48000,
++			.rate_max = 48000,
++			.channels_min = 1,
++			.channels_max = 1,
++		},
++		.ops = &btfm_slim_dai_ops,
++	},
++};
++
++static const struct snd_soc_component_driver btfm_slim_comp = {
++	.name = "btfm-slim",
++};
++
++static void btfm_slim_sidev_put(void *data)
++{
++	put_device(data);
++}
++
++static int btfm_slim_probe(struct slim_device *sdev)
++{
++	struct device_node *ifc_np;
++	struct btfm_slim *btfm;
++	int ret;
++
++	btfm = devm_kzalloc(&sdev->dev, sizeof(*btfm), GFP_KERNEL);
++	if (!btfm)
++		return -ENOMEM;
++
++	ifc_np = of_parse_phandle(sdev->dev.of_node, "slim-ifc-dev", 0);
++	if (!ifc_np) {
++		dev_err(&sdev->dev, "slim-ifc-dev phandle missing\n");
++		return -EINVAL;
++	}
++
++	btfm->sidev = of_slim_get_device(sdev->ctrl, ifc_np);
++	of_node_put(ifc_np);
++	if (!btfm->sidev) {
++		dev_err(&sdev->dev, "interface device not found\n");
++		return -EINVAL;
++	}
++
++	ret = devm_add_action_or_reset(&sdev->dev, btfm_slim_sidev_put,
++				       &btfm->sidev->dev);
++	if (ret)
++		return ret;
++
++	btfm->sdev = sdev;
++	mutex_init(&btfm->io_lock);
++	dev_set_drvdata(&sdev->dev, btfm);
++
++	ret = devm_snd_soc_register_component(&sdev->dev, &btfm_slim_comp,
++					      btfm_slim_dais,
++					      ARRAY_SIZE(btfm_slim_dais));
++	if (ret)
++		dev_err(&sdev->dev, "failed to register component: %d\n", ret);
++
++	return ret;
++}
++
++static void btfm_slim_remove(struct slim_device *sdev)
++{
++	struct btfm_slim *btfm = dev_get_drvdata(&sdev->dev);
++
++	mutex_destroy(&btfm->io_lock);
++}
++
++static const struct slim_device_id btfm_slim_id[] = {
++	/*
++	 * The PGD only (device index 1); the interface device stays
++	 * driverless and is looked up through the slim-ifc-dev phandle.
++	 */
++	{ .manf_id = WCN3990_MANF_ID, .prod_code = WCN3990_PROD_CODE,
++	  .dev_index = 1, .instance = 0 },
++	{ }
++};
++MODULE_DEVICE_TABLE(slim, btfm_slim_id);
++
++static struct slim_driver btfm_slim_driver = {
++	.driver = {
++		.name = "btfm-slim-driver",
++	},
++	.probe = btfm_slim_probe,
++	.remove = btfm_slim_remove,
++	.id_table = btfm_slim_id,
++};
++
++static int __init btfm_slim_init(void)
++{
++	return slim_driver_register(&btfm_slim_driver);
++}
++module_init(btfm_slim_init);
++
++static void __exit btfm_slim_exit(void)
++{
++	slim_driver_unregister(&btfm_slim_driver);
++}
++module_exit(btfm_slim_exit);
++
++MODULE_LICENSE("GPL");
++MODULE_DESCRIPTION("Qualcomm WCN399x Bluetooth/FM SLIMbus audio codec");
+diff --git a/sound/soc/codecs/es9218p.c b/sound/soc/codecs/es9218p.c
+new file mode 100644
+index 000000000000..90eeca7b9464
+--- /dev/null
++++ b/sound/soc/codecs/es9218p.c
+@@ -0,0 +1,757 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * ESS Technology ES9218P "Sabre" headphone DAC/amplifier
++ *
++ * Found on the LG V30 (msm8998, joan) as the "Quad DAC", sitting on BLSP1 QUP1
++ * at I2C 0x48, downstream of the WCD9340 codec on the headphone path.
++ *
++ * This is a fresh ASoC driver using the upstream idioms (regmap, DAPM,
++ * component driver). It is NOT a copy of LG's downstream es9218p.c, which is
++ * ~3700 lines dominated by vendor headphone-detection, impedance measurement,
++ * custom sysfs and per-SKU tuning. The register semantics below are taken from
++ * that driver's header, which is the only public description of the part.
++ *
++ * STATUS: working on hardware (LG V30, 2026-08-21). The part answers on BLSP1
++ * QUP1 with chip id 0xd0, the value LG's own driver checks for, and plays
++ * stereo audio: regmap, volume, mute, power sequencing, the register init and
++ * the analog amplifier power-up are all implemented and verified, and the DAC
++ * reports a locked DPLL while a stream runs.
++ *
++ * On joan the I2S feed is QUATERNARY MI2S, not tertiary -- tertiary carries the
++ * TFA9872 loudspeaker amplifier instead. Read the dai-link that names the codec
++ * (LPASS_BE_QUAT_MI2S_RX / msm-dai-q6-mi2s.3 -> es9218-codec.1-0048) rather than
++ * inferring the port from a neighbouring DT node.
++ *
++ * Not yet done: jack detection, and a sane default volume (full scale here is
++ * 0 dB into headphones and is uncomfortably loud).
++ *
++ * There is no ES9218P support anywhere upstream to compare against (the only
++ * ESS codec in tree, es9356, is a SoundWire part and shares no bus model with
++ * this one).
++ */
++
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/regmap.h>
++#include <sound/pcm.h>
++#include <sound/pcm_params.h>
++#include <sound/soc.h>
++#include <sound/tlv.h>
++
++#define ES9218P_SYSTEM_REG		0x00
++#define ES9218P_INPUT_SELECT		0x01
++#define ES9218P_AUTOMUTE_CONFIG		0x02
++#define ES9218P_ANALOG_VOL_CTRL		0x03
++#define ES9218P_AUTOMUTE_TIME		0x04
++#define ES9218P_AUTOMUTE_LEVEL		0x05
++#define ES9218P_DOP_VOL_RAMP_RATE	0x06
++#define ES9218P_FILTER_BAND_SYSTEM_MUTE	0x07
++#define ES9218P_GPIO1_2_CONFIG		0x08
++#define ES9218P_MASTERMODE_SYNC_CONFIG	0x0a
++#define ES9218P_OVERCURRENT_PROTECT	0x0b
++#define ES9218P_DPLL_BANDWIDTH		0x0c
++#define ES9218P_THD_COMP_MONO_MODE	0x0d
++#define ES9218P_SOFT_START_CONFIG	0x0e
++#define ES9218P_VOL1_CTRL		0x0f
++#define ES9218P_VOL2_CTRL		0x10
++#define ES9218P_MASTERTRIM_4		0x11
++#define ES9218P_MASTERTRIM_3		0x12
++#define ES9218P_MASTERTRIM_2		0x13
++#define ES9218P_MASTERTRIM_1		0x14
++#define ES9218P_GPIO_INPUT_SEL		0x15
++#define ES9218P_CP_SS_DELAY		0x1b	/* charge pump soft-start delay */
++#define ES9218P_GEN_CONFIG		0x1d
++#define ES9218P_GPIO_INVERT_CLKGEAR1	0x1e
++#define ES9218P_GPIO_INVERT_CLKGEAR2	0x1f
++#define ES9218P_AMP_CONFIG		0x20
++#define ES9218P_AMP_MODE_HIFI1		0x02
++
++/*
++ * Analog output block.  LG's driver drives these directly with no symbolic
++ * names; the bit meanings below come from the comments in its power-up
++ * sequence (es9218p.c, es9218p_sabre_bypass2hifi()).
++ */
++#define ES9218P_ANALOG_OVERRIDE		0x2d	/* "register 45" */
++#define ES9218P_APDB			BIT(2)
++#define ES9218P_CPH_WEAK		BIT(3)
++#define ES9218P_CPH_STRONG		BIT(4)
++#define ES9218P_AREG_PDB		BIT(5)
++#define ES9218P_ENHPA			BIT(6)
++
++#define ES9218P_DIGITAL_OVERRIDE	0x2e	/* "register 46" */
++#define ES9218P_SHTINB			BIT(0)	/* release amp input shunt */
++#define ES9218P_SHTOUTB			BIT(1)	/* release amp output shunt */
++#define ES9218P_SEL1V			BIT(2)	/* external LDO */
++#define ES9218P_OVERRIDE_EN		BIT(7)
++
++#define ES9218P_CP_OVERRIDE		0x2f	/* "register 47" */
++#define ES9218P_CPL_WEAK		BIT(3)
++#define ES9218P_CPL_STRONG		BIT(4)
++#define ES9218P_ENCP_OE			BIT(5)
++#define ES9218P_ENAUX_OE		BIT(6)
++
++#define ES9218P_HPA_CTRL		0x30	/* "register 48" */
++#define ES9218P_STATE3_CTRL_SEL		0x07	/* minimum state-machine delay */
++#define ES9218P_HPAHIQ			BIT(3)
++#define ES9218P_ENHPA_OUT		BIT(6)
++
++/* ATC (analog volume) floor used while the output stage is brought up. */
++#define ES9218P_ATC_MIN			0x18
++#define ES9218P_CHIP_ID			0x40
++
++#define ES9218P_MAX_REGISTER		0x45
++
++/* ES9218P_INPUT_SELECT */
++#define ES9218P_INPUT_SEL_MASK		GENMASK(7, 6)
++#define ES9218P_INPUT_SEL_I2S		0
++/*
++ * Serial word length lives in bit 7 of the input-select register, and LG's
++ * es9218p_set_bit_width() writes the whole byte rather than masking: 0x00 for
++ * 16-bit, 0x80 for 24- and 32-bit.  An earlier version of this driver put the
++ * field in bits 1:0, so the register kept its 0x8c reset value -- 32-bit --
++ * while 16-bit frames were being sent, and the misaligned frames crackled.
++ */
++#define ES9218P_SERIAL_LEN_16		0x00
++#define ES9218P_SERIAL_LEN_32		0x80
++
++/* ES9218P_FILTER_BAND_SYSTEM_MUTE */
++#define ES9218P_SYSTEM_MUTE		BIT(0)
++
++struct es9218p_priv {
++	struct regmap *regmap;
++	bool internal_ldo;
++	struct gpio_desc *reset_gpio;
++	struct gpio_desc *power_gpio;
++	struct gpio_desc *hph_sw_gpio;
++};
++
++static const struct reg_default es9218p_reg_defaults[] = {
++	{ ES9218P_SYSTEM_REG,		0x00 },
++	{ ES9218P_INPUT_SELECT,		0x8c },
++	{ ES9218P_ANALOG_VOL_CTRL,	0x40 },
++	{ ES9218P_VOL1_CTRL,		0x50 },
++	{ ES9218P_VOL2_CTRL,		0x50 },
++};
++
++static bool es9218p_volatile_reg(struct device *dev, unsigned int reg)
++{
++	/* status and chip-id space is read-only/volatile */
++	return reg >= ES9218P_CHIP_ID;
++}
++
++static const struct regmap_config es9218p_regmap_config = {
++	.reg_bits	= 8,
++	.val_bits	= 8,
++	.max_register	= ES9218P_MAX_REGISTER,
++	.reg_defaults	= es9218p_reg_defaults,
++	.num_reg_defaults = ARRAY_SIZE(es9218p_reg_defaults),
++	.volatile_reg	= es9218p_volatile_reg,
++	.cache_type	= REGCACHE_MAPLE,
++};
++
++/*
++ * Digital volume, registers 0x0f/0x10, one per channel. Downstream treats the
++ * value as attenuation in 0.5 dB steps with 0x00 = 0 dB, so the usable range is
++ * 0 dB down to -127.5 dB.
++ */
++static const DECLARE_TLV_DB_SCALE(es9218p_vol_tlv, -12750, 50, 1);
++
++/*
++ * Operating mode.  RESET_N and MODE2 are not independent signals: together they
++ * are a two-bit mode field on the DAC itself, transcribed from LG's es9218p.c:
++ *
++ *	RESET_N=H, MODE2=L	HiFi		DAC + amplifier active
++ *	RESET_N=H, MODE2=H	LowFi
++ *	RESET_N=L, MODE2=H	Low Power Bypass
++ *	RESET_N=L, MODE2=L	Standby (shutdown)
++ *
++ * In Low Power Bypass the part shuts its own DAC down and passes analogue
++ * through to the jack, which is how downstream idles: it sits in LPB and only
++ * transitions to HiFi once a load has been measured on insertion.
++ *
++ * Note the inversion.  reset-gpios is ACTIVE_LOW in DT, so a gpiod value of 0
++ * means RESET_N is *high* and the part is out of reset; hph-sw-gpios is
++ * ACTIVE_HIGH and maps straight through.
++ *
++ * This control only moves the mode pins.  The register sequences downstream
++ * runs across a transition (es9218p_sabre_hifi2lpb() and friends) are not
++ * implemented yet, so changing mode under an active stream is not expected to
++ * be glitch-free.
++ */
++/*
++ * Defined below, beside the register sequence and amplifier power-up it
++ * replays: a mode that holds RESET_N low clears the register map, so restoring
++ * the pins alone does not restore the part.
++ */
++static int es9218p_restore_after_reset(struct es9218p_priv *es9218p);
++
++enum es9218p_mode {
++	ES9218P_MODE_HIFI = 0,
++	ES9218P_MODE_LOWFI,
++	ES9218P_MODE_LPB,
++	ES9218P_MODE_STANDBY,
++};
++
++static const char * const es9218p_mode_text[] = {
++	"HiFi", "LowFi", "Low Power Bypass", "Standby",
++};
++
++static SOC_ENUM_SINGLE_EXT_DECL(es9218p_mode_enum, es9218p_mode_text);
++
++/* { reset gpiod value, mode2 gpiod value } per mode, in enum order. */
++static const u8 es9218p_mode_pins[][2] = {
++	[ES9218P_MODE_HIFI]	= { 0, 0 },
++	[ES9218P_MODE_LOWFI]	= { 0, 1 },
++	[ES9218P_MODE_LPB]	= { 1, 1 },
++	[ES9218P_MODE_STANDBY]	= { 1, 0 },
++};
++
++static int es9218p_mode_get(struct snd_kcontrol *kcontrol,
++			    struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
++	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(component);
++	int rst, sw, i;
++
++	if (!es9218p->reset_gpio || !es9218p->hph_sw_gpio)
++		return -ENODEV;
++
++	rst = gpiod_get_value_cansleep(es9218p->reset_gpio);
++	sw  = gpiod_get_value_cansleep(es9218p->hph_sw_gpio);
++
++	for (i = 0; i < ARRAY_SIZE(es9218p_mode_pins); i++) {
++		if (es9218p_mode_pins[i][0] == rst &&
++		    es9218p_mode_pins[i][1] == sw) {
++			ucontrol->value.enumerated.item[0] = i;
++			return 0;
++		}
++	}
++
++	return -EINVAL;
++}
++
++static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
++			    struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
++	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(component);
++	unsigned int mode = ucontrol->value.enumerated.item[0];
++	struct snd_soc_dapm_context *dapm;
++	int rst, sw;
++
++	if (mode >= ARRAY_SIZE(es9218p_mode_pins))
++		return -EINVAL;
++
++	if (!es9218p->reset_gpio || !es9218p->hph_sw_gpio)
++		return -ENODEV;
++
++	rst = gpiod_get_value_cansleep(es9218p->reset_gpio);
++	sw  = gpiod_get_value_cansleep(es9218p->hph_sw_gpio);
++
++	if (es9218p_mode_pins[mode][0] == rst && es9218p_mode_pins[mode][1] == sw)
++		return 0;
++
++	/*
++	 * Leaving an amplifier mode has to hand amp-mode control back to the
++	 * mode pin before RESET_N drops, or the part does not reach bypass.
++	 * Downstream's es9218p_sabre_hifione2lpb() writes AMP_CONFIG = 0 --
++	 * "amp mode core on, amp mode gpio set to trigger Core On", which it
++	 * notes leaves the part in LowFi under GPIO2 control -- waits, and only
++	 * then pulls RESETb low. The 100 ms settle is what LG compiles in for
++	 * this board specifically (CONFIG_MACH_MSM8998_JOAN); the generic path
++	 * has no delay there.
++	 */
++	if (es9218p_mode_pins[mode][0] == 1 && rst == 0) {
++		regmap_write(es9218p->regmap, ES9218P_AMP_CONFIG, 0);
++		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
++					 es9218p_mode_pins[mode][1]);
++		msleep(100);
++		gpiod_set_value_cansleep(es9218p->reset_gpio,
++					 es9218p_mode_pins[mode][0]);
++		/*
++		 * RESET_N is asserted again from here, so the register
++		 * interface is gone until the part is woken the next time.
++		 */
++		regcache_cache_only(es9218p->regmap, true);
++	} else if (es9218p_mode_pins[mode][0] == 0) {
++		/* Powering the part back up: MODE2 first, then release RESET_N. */
++		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
++					 es9218p_mode_pins[mode][1]);
++		gpiod_set_value_cansleep(es9218p->reset_gpio,
++					 es9218p_mode_pins[mode][0]);
++		usleep_range(1000, 2000);
++		/* Out of reset again: the init replay below, and the
++		 * power-up sequence in es9218p_amp_power_up(), must reach
++		 * hardware. */
++		regcache_cache_only(es9218p->regmap, false);
++	} else {
++		gpiod_set_value_cansleep(es9218p->reset_gpio,
++					 es9218p_mode_pins[mode][0]);
++		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
++					 es9218p_mode_pins[mode][1]);
++		usleep_range(1000, 2000);
++	}
++
++	/*
++	 * RESET_N low clears the register map, so returning to an amplifier
++	 * mode has to replay the init sequence and bring the output stage back
++	 * up.  Without this the part reports the right mode and the card shows
++	 * a live route and a RUNNING PCM while the jack stays silent.
++	 */
++	if (es9218p_mode_pins[mode][0] == 0 && rst == 1)
++		es9218p_restore_after_reset(es9218p);
++
++	/*
++	 * Only HiFi drives the jack from this part.  Park the output pins in
++	 * every other mode so the DAPM path goes away and the DPCM backend
++	 * detaches from the front-end: while it stays attached, opening a
++	 * stream fails hw_params with -ENXIO as soon as the part leaves HiFi,
++	 * and that takes the whole front-end open down with it.
++	 */
++	dapm = snd_soc_component_to_dapm(component);
++	if (mode == ES9218P_MODE_HIFI) {
++		snd_soc_dapm_force_enable_pin(dapm, "HPOUTL");
++		snd_soc_dapm_force_enable_pin(dapm, "HPOUTR");
++	} else {
++		snd_soc_dapm_disable_pin(dapm, "HPOUTL");
++		snd_soc_dapm_disable_pin(dapm, "HPOUTR");
++	}
++	snd_soc_dapm_sync(dapm);
++
++	return 1;
++}
++
++static const struct snd_kcontrol_new es9218p_snd_controls[] = {
++	SOC_DOUBLE_R_TLV("Headphone Playback Volume",
++			 ES9218P_VOL1_CTRL, ES9218P_VOL2_CTRL,
++			 0, 0xff, 1, es9218p_vol_tlv),
++	SOC_SINGLE("Headphone Playback Switch",
++		   ES9218P_FILTER_BAND_SYSTEM_MUTE, 0, 1, 1),
++	SOC_ENUM_EXT("Headphone Mode", es9218p_mode_enum,
++		     es9218p_mode_get, es9218p_mode_put),
++};
++
++static int es9218p_dac_event(struct snd_soc_dapm_widget *w,
++			     struct snd_kcontrol *kc, int event);
++
++static const struct snd_soc_dapm_widget es9218p_dapm_widgets[] = {
++	SND_SOC_DAPM_DAC_E("DAC", NULL, SND_SOC_NOPM, 0, 0,
++			   es9218p_dac_event,
++			   SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
++	SND_SOC_DAPM_OUTPUT("HPOUTL"),
++	SND_SOC_DAPM_OUTPUT("HPOUTR"),
++};
++
++static const struct snd_soc_dapm_route es9218p_dapm_routes[] = {
++	{ "DAC", NULL, "Playback" },
++	{ "HPOUTL", NULL, "DAC" },
++	{ "HPOUTR", NULL, "DAC" },
++};
++
++static int es9218p_hw_params(struct snd_pcm_substream *substream,
++			     struct snd_pcm_hw_params *params,
++			     struct snd_soc_dai *dai)
++{
++	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(dai->component);
++	unsigned int len;
++
++	switch (params_width(params)) {
++	case 16:
++		len = ES9218P_SERIAL_LEN_16;
++		break;
++	case 24:
++	case 32:
++		len = ES9218P_SERIAL_LEN_32;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return regmap_write(es9218p->regmap, ES9218P_INPUT_SELECT, len);
++}
++
++static int es9218p_mute_stream(struct snd_soc_dai *dai, int mute, int direction)
++{
++	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(dai->component);
++
++	return regmap_update_bits(es9218p->regmap,
++				  ES9218P_FILTER_BAND_SYSTEM_MUTE,
++				  ES9218P_SYSTEM_MUTE,
++				  mute ? ES9218P_SYSTEM_MUTE : 0);
++}
++
++static int es9218p_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
++{
++	/* Only I2S slave is described by the downstream register tables. */
++	if ((fmt & SND_SOC_DAIFMT_FORMAT_MASK) != SND_SOC_DAIFMT_I2S)
++		return -EINVAL;
++	if ((fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) !=
++	    SND_SOC_DAIFMT_CBC_CFC)
++		return -EINVAL;
++
++	return 0;
++}
++
++/*
++ * Register init.  Values are LG's (es9218_common_init_registers and
++ * es9218_PCM_init_register); only the entries its tables actually write are
++ * carried over -- the rest of those tables is commented-out reset defaults.
++ */
++static const struct reg_sequence es9218p_init_seq[] = {
++	{ ES9218P_OVERCURRENT_PROTECT,	0x90 },
++	{ ES9218P_DPLL_BANDWIDTH,	0x8a },
++	{ ES9218P_THD_COMP_MONO_MODE,	0x00 },
++	{ ES9218P_SOFT_START_CONFIG,	0x07 },
++	{ ES9218P_GPIO_INPUT_SEL,	0x0f },
++	{ ES9218P_CP_SS_DELAY,		0xc4 },
++	{ ES9218P_GPIO_INVERT_CLKGEAR1,	0x37 },
++	{ ES9218P_GPIO_INVERT_CLKGEAR2,	0x30 },
++
++	/* PCM path: DoP off, slave mode, clock divider M/4. */
++	{ ES9218P_SYSTEM_REG,		0x00 },
++	{ ES9218P_AUTOMUTE_CONFIG,	0x34 },
++	{ ES9218P_DOP_VOL_RAMP_RATE,	0x43 },
++	{ ES9218P_MASTERMODE_SYNC_CONFIG, 0x02 },
++	{ ES9218P_GEN_CONFIG,		0x06 },
++};
++
++static int es9218p_amp_power_up(struct es9218p_priv *es9218p);
++
++static int es9218p_restore_after_reset(struct es9218p_priv *es9218p)
++{
++	int ret;
++
++	regcache_mark_dirty(es9218p->regmap);
++
++	ret = regmap_multi_reg_write(es9218p->regmap, es9218p_init_seq,
++				     ARRAY_SIZE(es9218p_init_seq));
++	if (ret)
++		return ret;
++
++	ret = regcache_sync(es9218p->regmap);
++	if (ret)
++		return ret;
++
++	return es9218p_amp_power_up(es9218p);
++}
++
++/*
++ * Bring the headphone amplifier up.  This is ESS's ordering, transcribed from
++ * LG's es9218p_sabre_bypass2hifi(): the charge pumps are staged weak before
++ * strong, the amplifier is held shunted until its supplies are alive, and the
++ * output stage is enabled last.  Skipping it leaves the part configured and
++ * clocked but silent, which is exactly what we measured.
++ *
++ * LG steps this with a 500 ms delay per write, but that is its
++ * "ESS pop-click debugging step time delay" knob, not a hardware requirement.
++ * The only settle the source documents as required is the 5 ms before
++ * AREG_PDB, so that one is honoured and the rest are short.
++ */
++static int es9218p_amp_power_up(struct es9218p_priv *es9218p)
++{
++	struct regmap *rm = es9218p->regmap;
++	unsigned int r46 = ES9218P_OVERRIDE_EN;
++	int ret;
++
++	if (!es9218p->internal_ldo)
++		r46 |= ES9218P_SEL1V;
++
++	/* Claim the jack: HiFi pins first (MODE2 low, then RESET_N high). */
++	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 0);
++	gpiod_set_value_cansleep(es9218p->reset_gpio, 0);
++	usleep_range(1000, 2000);
++	/*
++	 * Out of reset: serve the register sequence below from hardware
++	 * again.  The cache stays coherent, so anything userspace wrote
++	 * while the part idled in bypass is still in there and is replayed
++	 * by the regcache_sync() at the end.
++	 */
++	regcache_cache_only(rm, false);
++
++	/* Minimum state-machine delay; HPAHiQ toggled as ESS specifies. */
++	ret = regmap_write(rm, ES9218P_HPA_CTRL,
++			   ES9218P_HPAHIQ | ES9218P_STATE3_CTRL_SEL);
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_HPA_CTRL,
++				   ES9218P_STATE3_CTRL_SEL);
++	/* Take manual control; both amp shunts stay engaged for now. */
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_DIGITAL_OVERRIDE, r46);
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_AMP_CONFIG,
++				   ES9218P_AMP_MODE_HIFI1);
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_ANALOG_VOL_CTRL,
++				   ES9218P_ATC_MIN);
++	/* Charge pumps: weak first, then override-enable, then strong. */
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_CP_OVERRIDE, ES9218P_CPL_WEAK);
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_ANALOG_OVERRIDE,
++				   ES9218P_CPH_WEAK);
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_CP_OVERRIDE,
++				   ES9218P_CPL_WEAK | ES9218P_ENCP_OE |
++				   ES9218P_ENAUX_OE);
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_ANALOG_OVERRIDE,
++				   ES9218P_CPH_WEAK | ES9218P_APDB |
++				   ES9218P_CPH_STRONG);
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_CP_OVERRIDE,
++				   ES9218P_CPL_WEAK | ES9218P_ENCP_OE |
++				   ES9218P_ENAUX_OE | ES9218P_CPL_STRONG);
++	if (ret)
++		return ret;
++
++	/* Vref (APDB) must settle before the AVCC_DAC regulator comes up. */
++	usleep_range(5000, 6000);
++
++	ret = regmap_write(rm, ES9218P_ANALOG_OVERRIDE,
++			   ES9218P_CPH_WEAK | ES9218P_APDB |
++			   ES9218P_CPH_STRONG | ES9218P_AREG_PDB |
++			   ES9218P_ENHPA);
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_DIGITAL_OVERRIDE,
++				   r46 | ES9218P_SHTINB);
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_HPA_CTRL,
++				   ES9218P_STATE3_CTRL_SEL |
++				   ES9218P_ENHPA_OUT);
++	/* Restore the analog volume the ATC floor above displaced. */
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_ANALOG_VOL_CTRL, 0x40);
++	/*
++	 * Release the output shunt and hand control back to AMP_CONFIG, which
++	 * holds the part in HiFi1 from here.
++	 */
++	if (!ret)
++		ret = regmap_write(rm, ES9218P_DIGITAL_OVERRIDE,
++				   (r46 & ES9218P_SEL1V) | ES9218P_SHTINB |
++				   ES9218P_SHTOUTB);
++	if (!ret)
++		/*
++		 * Replay mixer values that landed in the cache while the
++		 * part was idled in Low Power Bypass (volume, mute).
++		 */
++		ret = regcache_sync(rm);
++	return ret;
++}
++
++static int es9218p_amp_power_down(struct es9218p_priv *es9218p)
++{
++	struct regmap *rm = es9218p->regmap;
++	unsigned int r46 = ES9218P_OVERRIDE_EN;
++
++	if (!es9218p->internal_ldo)
++		r46 |= ES9218P_SEL1V;
++
++	/* Shunt the output, drop the amp, then the supplies and pumps. */
++	regmap_write(rm, ES9218P_ANALOG_VOL_CTRL, ES9218P_ATC_MIN);
++	regmap_write(rm, ES9218P_DIGITAL_OVERRIDE, r46);
++	regmap_write(rm, ES9218P_HPA_CTRL, ES9218P_STATE3_CTRL_SEL);
++	regmap_write(rm, ES9218P_ANALOG_OVERRIDE, 0);
++	regmap_write(rm, ES9218P_CP_OVERRIDE, 0);
++	regmap_write(rm, ES9218P_AMP_CONFIG, 0);
++
++	/*
++	 * Hand the jack back to the WCD934x: idle is Low Power Bypass, as in
++	 * LG's es9218p_sabre_hifione2lpb() (AMP_CONFIG = 0 above, then the
++	 * joan 100 ms settle before RESETb drops).
++	 */
++	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 1);
++	msleep(100);
++	gpiod_set_value_cansleep(es9218p->reset_gpio, 1);
++	/*
++	 * RESET_N is low from here, so the register interface is dead.
++	 * Cache-only keeps any mixer access that arrives while idle from
++	 * NACKing on I2C; the values wait in the cache for the next
++	 * power-up.
++	 */
++	regcache_cache_only(rm, true);
++
++	return 0;
++}
++
++static int es9218p_dac_event(struct snd_soc_dapm_widget *w,
++			     struct snd_kcontrol *kc, int event)
++{
++	struct snd_soc_component *comp = snd_soc_dapm_to_component(w->dapm);
++	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(comp);
++
++	switch (event) {
++	case SND_SOC_DAPM_POST_PMU:
++		return es9218p_amp_power_up(es9218p);
++	case SND_SOC_DAPM_PRE_PMD:
++		return es9218p_amp_power_down(es9218p);
++	}
++
++	return 0;
++}
++
++static const struct snd_soc_dai_ops es9218p_dai_ops = {
++	.hw_params	= es9218p_hw_params,
++	.mute_stream	= es9218p_mute_stream,
++	.set_fmt	= es9218p_set_fmt,
++	.no_capture_mute = 1,
++};
++
++#define ES9218P_RATES	(SNDRV_PCM_RATE_8000_192000)
++#define ES9218P_FORMATS	(SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_LE | \
++			 SNDRV_PCM_FMTBIT_S32_LE)
++
++static struct snd_soc_dai_driver es9218p_dai = {
++	.name = "es9218p-hifi",
++	.playback = {
++		.stream_name	= "Playback",
++		.channels_min	= 2,
++		.channels_max	= 2,
++		.rates		= ES9218P_RATES,
++		.formats	= ES9218P_FORMATS,
++	},
++	.ops = &es9218p_dai_ops,
++};
++
++static const struct snd_soc_component_driver es9218p_component_driver = {
++	.controls		= es9218p_snd_controls,
++	.num_controls		= ARRAY_SIZE(es9218p_snd_controls),
++	.dapm_widgets		= es9218p_dapm_widgets,
++	.num_dapm_widgets	= ARRAY_SIZE(es9218p_dapm_widgets),
++	.dapm_routes		= es9218p_dapm_routes,
++	.num_dapm_routes	= ARRAY_SIZE(es9218p_dapm_routes),
++	.idle_bias_on		= 1,
++	.use_pmdown_time	= 1,
++	.endianness		= 1,
++};
++
++static void es9218p_power_off(void *data)
++{
++	struct es9218p_priv *es9218p = data;
++
++	gpiod_set_value_cansleep(es9218p->reset_gpio, 1);
++	gpiod_set_value_cansleep(es9218p->power_gpio, 0);
++}
++
++static int es9218p_i2c_probe(struct i2c_client *i2c)
++{
++	struct device *dev = &i2c->dev;
++	struct es9218p_priv *es9218p;
++	unsigned int chipid, val;
++	int ret;
++
++	es9218p = devm_kzalloc(dev, sizeof(*es9218p), GFP_KERNEL);
++	if (!es9218p)
++		return -ENOMEM;
++
++	i2c_set_clientdata(i2c, es9218p);
++
++	es9218p->power_gpio = devm_gpiod_get_optional(dev, "power",
++						      GPIOD_OUT_LOW);
++	if (IS_ERR(es9218p->power_gpio))
++		return dev_err_probe(dev, PTR_ERR(es9218p->power_gpio),
++				     "failed to get power GPIO\n");
++
++	es9218p->reset_gpio = devm_gpiod_get_optional(dev, "reset",
++						      GPIOD_OUT_HIGH);
++	if (IS_ERR(es9218p->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(es9218p->reset_gpio),
++				     "failed to get reset GPIO\n");
++
++	/*
++	 * Headphone path switch (the chip's GPIO2/amp-mode pin): HIGH hands the
++	 * jack back to the WCD934x (Low Power Bypass), LOW lets this DAC drive
++	 * it.  Managed by the mode transitions below.
++	 */
++	es9218p->hph_sw_gpio = devm_gpiod_get_optional(dev, "hph-sw",
++						       GPIOD_OUT_LOW);
++	if (IS_ERR(es9218p->hph_sw_gpio))
++		return dev_err_probe(dev, PTR_ERR(es9218p->hph_sw_gpio),
++				     "failed to get hph-sw GPIO\n");
++
++	gpiod_set_value_cansleep(es9218p->power_gpio, 1);
++	usleep_range(1000, 2000);
++	gpiod_set_value_cansleep(es9218p->reset_gpio, 0);
++	usleep_range(1000, 2000);
++
++	ret = devm_add_action_or_reset(dev, es9218p_power_off, es9218p);
++	if (ret)
++		return ret;
++
++	es9218p->regmap = devm_regmap_init_i2c(i2c, &es9218p_regmap_config);
++	if (IS_ERR(es9218p->regmap))
++		return dev_err_probe(dev, PTR_ERR(es9218p->regmap),
++				     "failed to init regmap\n");
++
++	ret = regmap_read(es9218p->regmap, ES9218P_CHIP_ID, &chipid);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to read chip id\n");
++
++	dev_info(dev, "ES9218P chip id 0x%02x\n", chipid);
++
++	es9218p->internal_ldo = device_property_read_bool(dev,
++							  "ess,internal-ldo");
++
++	ret = regmap_multi_reg_write(es9218p->regmap, es9218p_init_seq,
++				     ARRAY_SIZE(es9218p_init_seq));
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to apply init sequence\n");
++
++	/*
++	 * Idle in Low Power Bypass like downstream: LG's probe leaves the part
++	 * with "ResetB Low and GPIO2(switch) High" (es9218p.c,
++	 * es9218p_standby2lpb()), which connects the jack through to the
++	 * WCD934x so its MBHC headset detection can see insertions and
++	 * removals.  The DAC claims the jack again in es9218p_amp_power_up()
++	 * when a stream opens.
++	 */
++	/*
++	 * The mute switch lives in register 0x07, which has no entry in
++	 * es9218p_reg_defaults and is not in the init sequence.  Read it once
++	 * while the part still answers so the cache holds a value: in
++	 * cache-only mode an uncached register cannot be read back, and every
++	 * read-modify-write of the switch would fail with -EBUSY.
++	 */
++	ret = regmap_read(es9218p->regmap, ES9218P_FILTER_BAND_SYSTEM_MUTE,
++			  &val);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to read system mute\n");
++
++	regmap_write(es9218p->regmap, ES9218P_AMP_CONFIG, 0);
++	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 1);
++	msleep(100);
++	gpiod_set_value_cansleep(es9218p->reset_gpio, 1);
++	/* The part idles in Low Power Bypass (RESET_N asserted) from here
++	 * on; see es9218p_amp_power_down(). */
++	regcache_cache_only(es9218p->regmap, true);
++
++	return devm_snd_soc_register_component(dev, &es9218p_component_driver,
++					       &es9218p_dai, 1);
++}
++
++static const struct of_device_id es9218p_of_match[] = {
++	{ .compatible = "ess,es9218p" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, es9218p_of_match);
++
++static const struct i2c_device_id es9218p_i2c_id[] = {
++	{ "es9218p" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, es9218p_i2c_id);
++
++static struct i2c_driver es9218p_i2c_driver = {
++	.driver = {
++		.name		= "es9218p",
++		.of_match_table	= es9218p_of_match,
++	},
++	.probe		= es9218p_i2c_probe,
++	.id_table	= es9218p_i2c_id,
++};
++module_i2c_driver(es9218p_i2c_driver);
++
++MODULE_DESCRIPTION("ASoC ES9218P driver");
++MODULE_LICENSE("GPL");
+diff --git a/sound/soc/codecs/tfa989x.c b/sound/soc/codecs/tfa989x.c
+index 79847a90ac46..c8606f4b387b 100644
+--- a/sound/soc/codecs/tfa989x.c
++++ b/sound/soc/codecs/tfa989x.c
+@@ -7,11 +7,13 @@
+  * Copyright (C) 2013 Sony Mobile Communications Inc.
+  */
+ 
++#include <linux/bitfield.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/i2c.h>
+ #include <linux/module.h>
+ #include <linux/regmap.h>
+ #include <linux/regulator/consumer.h>
++#include <sound/pcm_params.h>
+ #include <sound/soc.h>
+ 
+ #define TFA989X_STATUSREG		0x00
+@@ -50,14 +52,70 @@
+ #define TFA9890_REVISION		0x80
+ #define TFA9895_REVISION		0x12
+ #define TFA9897_REVISION		0x97
++#define TFA9872_REVISION		0x72
++
++/*
++ * The TFA9872 reaches its hidden registers through a different key register
++ * than the older parts (0x0f, not TFA989X_HIDE_UNHIDE_KEY at 0x40), and needs
++ * a second, challenge-response key on top: read 0xfb, xor, write to 0xa0.
++ */
++#define TFA9872_KEY1			0x0f
++#define TFA9872_KEY1_VAL		0x5a6b
++#define TFA9872_KEY2_CHALLENGE		0xfb
++#define TFA9872_KEY2			0xa0
++#define TFA9872_KEY2_XOR		0x005a
++#define TFA9872_MANAOOSC		0x01	/* bit 4: 1 MHz oscillator off */
++#define TFA9872_OVP			0xb0	/* bit 3: bypass over-voltage protection */
++
++/*
++ * The TFA9872 ("Probus") does not merely repurpose the low registers: system
++ * control, sample rate and status all live at different addresses than on the
++ * older TFA1 parts, and there is no CoolFlux DSP at all.  Writing the TFA989X_*
++ * offsets on this part is silently ignored - the amplifier then stays in its
++ * power-on default (PWDN set) and never produces any sound.  Field positions
++ * are from NXP's TFA9872N1B2 register definitions as shipped by LG.
++ */
++#define TFA9872_SYS_CONTROL0		0x00
++#define TFA9872_SYS_CONTROL0_PWDN	0
++#define TFA9872_SYS_CONTROL0_I2CR	1	/* I2C reset - auto clear */
++#define TFA9872_SYS_CONTROL1		0x01
++#define TFA9872_SYS_CONTROL1_MANSCONF	2	/* "I2C configured", starts the PLL */
++#define TFA9872_AUDIO_CONTROL		0x02
++#define TFA9872_AUDIO_CONTROL_AUDFS_MSK	GENMASK(3, 0)
++#define TFA9872_STATUS_FLAGS0		0x10
++#define TFA9872_STATUS_FLAGS0_SWS	10	/* amplifier engaged */
++#define TFA9872_TDM_CONFIG1		0x21
++#define TFA9872_TDM_CONFIG1_SLLN_MSK	GENMASK(8, 4)	/* bits per slot, minus one */
++
++/* The manager needs a few tries to leave "wait for I2C settings" state. */
++#define TFA9872_START_RETRIES		20
++
++/*
++ * TDMSPKG, the amplifier's own level control.  NXP's header calls it "total
++ * gain", but it behaves as an attenuation on this part: 0 is loudest and 15 is
++ * quietest, measured by ear on an LG V30.  Exposed inverted so the mixer
++ * behaves like a volume.  The per-step size is not documented in anything we
++ * have, so no dB scale is attached.
++ */
++#define TFA9872_TDM_SPKG		0x61
++#define TFA9872_TDM_SPKG_SHIFT		6
++#define TFA9872_TDM_SPKG_MAX		15
+ 
+ struct tfa989x_rev {
+ 	unsigned int rev;
+ 	int (*init)(struct regmap *regmap);
++	/*
++	 * Probus parts (TFA9872) use the register map above, including the
++	 * registers below TFA989X_REVISIONNUMBER that are status-only on the
++	 * older parts, and are brought up by their own hardware manager rather
++	 * than by writing AMPE directly.
++	 */
++	bool probus;
+ };
+ 
+ struct tfa989x {
+ 	const struct tfa989x_rev *rev;
++	struct regmap *regmap;
+ 	struct regulator *vddd_supply;
+ 	struct gpio_desc *rcv_gpiod;
+ };
+@@ -81,6 +139,26 @@ static const struct regmap_config tfa989x_regmap = {
+ 	.cache_type	= REGCACHE_RBTREE,
+ };
+ 
++/*
++ * The device manager clears PWDN and MANSCONF by itself whenever it falls back
++ * to waiting for the host, so those registers must never be served from the
++ * cache - otherwise regmap would skip the write that restarts the amplifier.
++ */
++static bool tfa9872_volatile_reg(struct device *dev, unsigned int reg)
++{
++	return reg <= TFA989X_REVISIONNUMBER ||
++	       (reg >= TFA9872_STATUS_FLAGS0 && reg <= 0x14);
++}
++
++/* Every register is writeable on the TFA9872, including the low ones. */
++static const struct regmap_config tfa9872_regmap = {
++	.reg_bits	= 8,
++	.val_bits	= 16,
++
++	.volatile_reg	= tfa9872_volatile_reg,
++	.cache_type	= REGCACHE_RBTREE,
++};
++
+ static const char * const chsa_text[] = { "Left", "Right", /* "DSP" */ };
+ static SOC_ENUM_SINGLE_DECL(chsa_enum, TFA989X_I2SREG, TFA989X_I2SREG_CHSA, chsa_text);
+ static const struct snd_kcontrol_new chsa_mux = SOC_DAPM_ENUM("Amp Input", chsa_enum);
+@@ -103,6 +181,22 @@ static const struct snd_soc_dapm_route tfa989x_dapm_routes[] = {
+ 	{"Amp Input", "Right", "AIFINR"},
+ };
+ 
++static const struct snd_kcontrol_new tfa9872_snd_controls[] = {
++	SOC_SINGLE("Speaker Playback Volume", TFA9872_TDM_SPKG,
++		   TFA9872_TDM_SPKG_SHIFT, TFA9872_TDM_SPKG_MAX, 1),
++};
++
++static const struct snd_soc_dapm_widget tfa9872_dapm_widgets[] = {
++	SND_SOC_DAPM_OUTPUT("OUT"),
++	SND_SOC_DAPM_AIF_IN("AIFINL", "HiFi Playback", 0, SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_AIF_IN("AIFINR", "HiFi Playback", 1, SND_SOC_NOPM, 0, 0),
++};
++
++static const struct snd_soc_dapm_route tfa9872_dapm_routes[] = {
++	{"OUT", NULL, "AIFINL"},
++	{"OUT", NULL, "AIFINR"},
++};
++
+ static int tfa989x_put_mode(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+ {
+ 	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+@@ -130,6 +224,18 @@ static int tfa989x_probe(struct snd_soc_component *component)
+ 	return 0;
+ }
+ 
++static const struct snd_soc_component_driver tfa9872_component = {
++	.probe			= tfa989x_probe,
++	.controls		= tfa9872_snd_controls,
++	.num_controls		= ARRAY_SIZE(tfa9872_snd_controls),
++	.dapm_widgets		= tfa9872_dapm_widgets,
++	.num_dapm_widgets	= ARRAY_SIZE(tfa9872_dapm_widgets),
++	.dapm_routes		= tfa9872_dapm_routes,
++	.num_dapm_routes	= ARRAY_SIZE(tfa9872_dapm_routes),
++	.use_pmdown_time	= 1,
++	.endianness		= 1,
++};
++
+ static const struct snd_soc_component_driver tfa989x_component = {
+ 	.probe			= tfa989x_probe,
+ 	.dapm_widgets		= tfa989x_dapm_widgets,
+@@ -160,19 +266,136 @@ static int tfa989x_hw_params(struct snd_pcm_substream *substream,
+ 			     struct snd_soc_dai *dai)
+ {
+ 	struct snd_soc_component *component = dai->component;
+-	int sr;
++	struct tfa989x *tfa989x = snd_soc_component_get_drvdata(component);
++	int sr, ret;
+ 
+ 	sr = tfa989x_find_sample_rate(params_rate(params));
+ 	if (sr < 0)
+ 		return sr;
+ 
+-	return snd_soc_component_update_bits(component, TFA989X_I2SREG,
+-					     TFA989X_I2SREG_I2SSR_MSK,
+-					     sr << TFA989X_I2SREG_I2SSR);
++	if (!tfa989x->rev->probus)
++		return snd_soc_component_update_bits(component, TFA989X_I2SREG,
++						     TFA989X_I2SREG_I2SSR_MSK,
++						     sr << TFA989X_I2SREG_I2SSR);
++
++	ret = regmap_update_bits(tfa989x->regmap, TFA9872_AUDIO_CONTROL,
++				 TFA9872_AUDIO_CONTROL_AUDFS_MSK, sr);
++	if (ret)
++		return ret;
++
++	/*
++	 * The reset default is 32 bits per slot, which does not fit the two
++	 * slots of the 32 BCK frame the CPU DAI sends for S16_LE stereo.  Left
++	 * that way the amplifier raises TDMERR and drops out of its operating
++	 * state roughly 80 ms after starting.
++	 */
++	return regmap_update_bits(tfa989x->regmap, TFA9872_TDM_CONFIG1,
++				  TFA9872_TDM_CONFIG1_SLLN_MSK,
++				  FIELD_PREP(TFA9872_TDM_CONFIG1_SLLN_MSK,
++					     params_width(params) - 1));
++}
++
++/*
++ * Probus parts are started by their own hardware manager: clearing PWDN only
++ * arms it, and setting MANSCONF ("I2C configured") is what lets it start the
++ * PLL and engage the amplifier.  AMPE is deliberately never written here -
++ * setting it before MANSCONF makes the manager clear it again and refuse to
++ * leave the "wait for I2C settings" state.
++ */
++static int tfa9872_amp_start(struct tfa989x *tfa989x)
++{
++	struct regmap *regmap = tfa989x->regmap;
++	unsigned int val;
++	int ret, i;
++
++	for (i = 0; i < TFA9872_START_RETRIES; i++) {
++		ret = regmap_clear_bits(regmap, TFA9872_SYS_CONTROL0,
++					BIT(TFA9872_SYS_CONTROL0_PWDN));
++		if (ret)
++			return ret;
++
++		/* MANSCONF does not read back as written */
++		ret = regmap_set_bits(regmap, TFA9872_SYS_CONTROL1,
++				      BIT(TFA9872_SYS_CONTROL1_MANSCONF));
++		if (ret)
++			return ret;
++
++		usleep_range(1000, 2000);
++
++		ret = regmap_read(regmap, TFA9872_STATUS_FLAGS0, &val);
++		if (ret)
++			return ret;
++
++		if (val & BIT(TFA9872_STATUS_FLAGS0_SWS))
++			return 0;
++	}
++
++	return -ETIMEDOUT;
++}
++
++static int tfa9872_amp_stop(struct tfa989x *tfa989x)
++{
++	return regmap_set_bits(tfa989x->regmap, TFA9872_SYS_CONTROL0,
++			       BIT(TFA9872_SYS_CONTROL0_PWDN));
++}
++
++static int tfa989x_trigger(struct snd_pcm_substream *substream, int cmd,
++			   struct snd_soc_dai *dai)
++{
++	struct snd_soc_component *component = dai->component;
++	struct tfa989x *tfa989x = snd_soc_component_get_drvdata(component);
++	int ret;
++
++	if (!tfa989x->rev->probus)
++		return 0;
++
++	switch (cmd) {
++	case SNDRV_PCM_TRIGGER_START:
++	case SNDRV_PCM_TRIGGER_RESUME:
++	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
++		ret = tfa9872_amp_start(tfa989x);
++		if (ret)
++			dev_err(component->dev,
++				"amplifier failed to start: %d\n", ret);
++		return ret;
++	case SNDRV_PCM_TRIGGER_STOP:
++	case SNDRV_PCM_TRIGGER_SUSPEND:
++	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
++		return tfa9872_amp_stop(tfa989x);
++	}
++
++	return 0;
++}
++
++static int tfa989x_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
++{
++	/*
++	 * The TFA98xx I2S port only works as a clock consumer and cannot be
++	 * reconfigured at runtime: format and edge are fixed by the register
++	 * init sequence.  Validate the machine's request against the one
++	 * configuration this hardware implements instead of leaving the op
++	 * unset, which makes snd_soc_dai_set_fmt() return -ENOTSUPP on
++	 * every stream start.
++	 */
++	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
++	case SND_SOC_DAIFMT_BC_FC:
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	if ((fmt & SND_SOC_DAIFMT_INV_MASK) != SND_SOC_DAIFMT_NB_NF)
++		return -EINVAL;
++	if ((fmt & SND_SOC_DAIFMT_FORMAT_MASK) != SND_SOC_DAIFMT_I2S)
++		return -EINVAL;
++
++	return 0;
+ }
+ 
+ static const struct snd_soc_dai_ops tfa989x_dai_ops = {
+ 	.hw_params = tfa989x_hw_params,
++	.trigger = tfa989x_trigger,
++	.set_fmt = tfa989x_set_fmt,
+ };
+ 
+ static struct snd_soc_dai_driver tfa989x_dai = {
+@@ -259,6 +482,73 @@ static int tfa9897_init(struct regmap *regmap)
+ 	return regmap_write(regmap, 0x14, 0x0);
+ }
+ 
++/*
++ * Register defaults for the N1B2 die (revisions 0x1b72, 0x2b72, 0x3b72), from
++ * tfa9872_specific() in NXP's vendor driver as shipped by LG.  These are the
++ * deviations from power-on reset that the part needs for correct amplifier
++ * behaviour; the vendor source lists the POR value beside each one.
++ *
++ * The table writes 0x02 and the tail touches 0x01, both of which are
++ * status-only on the older parts; the 9872 repurposes them, which is why it
++ * gets a regmap that allows writes below TFA989X_REVISIONNUMBER.
++ */
++static const struct reg_sequence tfa9872_reg_init[] = {
++	{ 0x02, 0x2dc8 },
++	{ 0x20, 0x0890 },
++	{ 0x22, 0x043c },
++	{ 0x23, 0x0001 },
++	{ 0x51, 0x0000 },
++	{ 0x52, 0x5a1c },
++	{ 0x61, 0x0198 },
++	{ 0x63, 0x0a9a },
++	{ 0x65, 0x0a82 },
++	{ 0x6f, 0x01e3 },
++	{ 0x70, 0x06fd },
++	{ 0x71, 0x307e },
++	{ 0x74, 0xcc84 },
++	{ 0x75, 0x1132 },
++	{ 0x82, 0x01ed },
++	{ 0x83, 0x001a },
++};
++
++static int tfa9872_init(struct regmap *regmap)
++{
++	unsigned int val;
++	int ret;
++
++	/* Unlock the hidden registers: fixed key, then challenge-response. */
++	ret = regmap_write(regmap, TFA9872_KEY1, TFA9872_KEY1_VAL);
++	if (ret)
++		return ret;
++
++	ret = regmap_read(regmap, TFA9872_KEY2_CHALLENGE, &val);
++	if (ret)
++		return ret;
++
++	ret = regmap_write(regmap, TFA9872_KEY2, val ^ TFA9872_KEY2_XOR);
++	if (ret)
++		return ret;
++
++	ret = regmap_multi_reg_write(regmap, tfa9872_reg_init,
++				     ARRAY_SIZE(tfa9872_reg_init));
++	if (ret)
++		return ret;
++
++	/* Turn the 1 MHz oscillator off to save power. */
++	ret = regmap_set_bits(regmap, TFA9872_MANAOOSC, BIT(4));
++	if (ret)
++		return ret;
++
++	/* Bypass over-voltage protection, as the vendor driver does. */
++	return regmap_set_bits(regmap, TFA9872_OVP, BIT(3));
++}
++
++static const struct tfa989x_rev tfa9872_rev = {
++	.rev			= TFA9872_REVISION,
++	.init			= tfa9872_init,
++	.probus			= true,
++};
++
+ static const struct tfa989x_rev tfa9897_rev = {
+ 	.rev	= TFA9897_REVISION,
+ 	.init	= tfa9897_init,
+@@ -282,6 +572,15 @@ static const struct tfa989x_rev tfa9897_rev = {
+  *
+  * Ideally NXP (or now Goodix) should release proper documentation for these
+  * amplifiers so that support for the "CoolFlux DSP" can be implemented properly.
++ *
++ * None of the above applies to the TFA9872, which has no CoolFlux DSP to
++ * bypass in the first place: it is one of NXP's "Probus" parts, and its
++ * register map contains none of the DSP interface fields (CFE, SBSL, ACS,
++ * DMEM, MADD, MEMA, RST) that the parts with a DSP expose.  Its amplifier is
++ * brought up by an on-chip manager instead - see tfa9872_amp_start().  On
++ * Probus parts the speaker protection algorithm runs off-chip, which on
++ * Qualcomm platforms means a module inside the ADSP firmware, so there is no
++ * on-chip DSP for this driver to talk to either way.
+  */
+ static int tfa989x_dsp_bypass(struct regmap *regmap)
+ {
+@@ -347,9 +646,11 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
+ 			return PTR_ERR(tfa989x->rcv_gpiod);
+ 	}
+ 
+-	regmap = devm_regmap_init_i2c(i2c, &tfa989x_regmap);
++	regmap = devm_regmap_init_i2c(i2c, rev->probus ? &tfa9872_regmap
++						       : &tfa989x_regmap);
+ 	if (IS_ERR(regmap))
+ 		return PTR_ERR(regmap);
++	tfa989x->regmap = regmap;
+ 
+ 	ret = regulator_enable(tfa989x->vddd_supply);
+ 	if (ret) {
+@@ -380,7 +681,12 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
+ 		return -ENODEV;
+ 	}
+ 
+-	ret = regmap_write(regmap, TFA989X_SYS_CTRL, BIT(TFA989X_SYS_CTRL_I2CR));
++	if (rev->probus)
++		ret = regmap_write(regmap, TFA9872_SYS_CONTROL0,
++				   BIT(TFA9872_SYS_CONTROL0_I2CR));
++	else
++		ret = regmap_write(regmap, TFA989X_SYS_CTRL,
++				   BIT(TFA989X_SYS_CTRL_I2CR));
+ 	if (ret) {
+ 		dev_err(dev, "failed to reset I2C registers: %d\n", ret);
+ 		return ret;
+@@ -392,18 +698,24 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
+ 		return ret;
+ 	}
+ 
+-	ret = tfa989x_dsp_bypass(regmap);
+-	if (ret) {
+-		dev_err(dev, "failed to enable DSP bypass: %d\n", ret);
+-		return ret;
++	/* Probus parts have no CoolFlux DSP, and none of these registers. */
++	if (!rev->probus) {
++		ret = tfa989x_dsp_bypass(regmap);
++		if (ret) {
++			dev_err(dev, "failed to enable DSP bypass: %d\n", ret);
++			return ret;
++		}
+ 	}
+ 	regcache_cache_bypass(regmap, false);
+ 
+-	return devm_snd_soc_register_component(dev, &tfa989x_component,
++	return devm_snd_soc_register_component(dev,
++					       rev->probus ? &tfa9872_component
++						           : &tfa989x_component,
+ 					       &tfa989x_dai, 1);
+ }
+ 
+ static const struct of_device_id tfa989x_of_match[] = {
++	{ .compatible = "nxp,tfa9872", .data = &tfa9872_rev },
+ 	{ .compatible = "nxp,tfa9890", .data = &tfa9890_rev },
+ 	{ .compatible = "nxp,tfa9895", .data = &tfa9895_rev },
+ 	{ .compatible = "nxp,tfa9897", .data = &tfa9897_rev },
+diff --git a/sound/soc/codecs/wcd934x.c b/sound/soc/codecs/wcd934x.c
+index c1a796b0ee30..1da149e07a19 100644
+--- a/sound/soc/codecs/wcd934x.c
++++ b/sound/soc/codecs/wcd934x.c
+@@ -1033,7 +1033,7 @@ static const struct soc_enum tx_adc_mux7_enum =
+ 	SOC_ENUM_SINGLE(WCD934X_CDC_TX_INP_MUX_ADC_MUX3_CFG1, 2,
+ 			ARRAY_SIZE(adc_mux_text), adc_mux_text);
+ static const struct soc_enum tx_adc_mux8_enum =
+-	SOC_ENUM_SINGLE(WCD934X_CDC_TX_INP_MUX_ADC_MUX1_CFG1, 4,
++	SOC_ENUM_SINGLE(WCD934X_CDC_TX_INP_MUX_ADC_MUX0_CFG1, 4,
+ 			ARRAY_SIZE(adc_mux_text), adc_mux_text);
+ 
+ static const struct soc_enum rx_int0_1_interp_mux_enum =
+@@ -1875,6 +1875,7 @@ static int wcd934x_trigger(struct snd_pcm_substream *substream, int cmd,
+ 	struct wcd_slim_codec_dai_data *dai_data;
+ 	struct wcd934x_codec *wcd;
+ 	struct slim_stream_config *cfg;
++	int ret;
+ 
+ 	wcd = snd_soc_component_get_drvdata(dai->component);
+ 
+@@ -1885,8 +1886,19 @@ static int wcd934x_trigger(struct snd_pcm_substream *substream, int cmd,
+ 	case SNDRV_PCM_TRIGGER_RESUME:
+ 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+ 		cfg = &dai_data->sconfig;
+-		slim_stream_prepare(dai_data->sruntime, cfg);
+-		slim_stream_enable(dai_data->sruntime);
++		ret = slim_stream_prepare(dai_data->sruntime, cfg);
++		if (ret) {
++			dev_err(dai->component->dev,
++				"slim_stream_prepare failed: %d\n", ret);
++			return ret;
++		}
++		ret = slim_stream_enable(dai_data->sruntime);
++		if (ret) {
++			dev_err(dai->component->dev,
++				"slim_stream_enable failed: %d\n", ret);
++			slim_stream_unprepare(dai_data->sruntime);
++			return ret;
++		}
+ 		break;
+ 	case SNDRV_PCM_TRIGGER_STOP:
+ 	case SNDRV_PCM_TRIGGER_SUSPEND:
+@@ -2203,6 +2215,14 @@ static void wcd934x_hw_init(struct wcd934x_codec *wcd)
+ {
+ 	struct regmap *rm = wcd->regmap;
+ 
++	/*
++	 * Set the Rbuckfly/R_EAR(32) Class-H coefficient.  The WCD934x
++	 * downstream initialization programs this value for every codec
++	 * instance; the reset value is 0x0080.
++	 */
++	regmap_update_bits(rm, WCD934X_CDC_CLSH_K2_MSB, 0x0f, 0x00);
++	regmap_update_bits(rm, WCD934X_CDC_CLSH_K2_LSB, 0xff, 0x60);
++
+ 	/* set SPKR rate to FS_2P4_3P072 */
+ 	regmap_update_bits(rm, WCD934X_CDC_RX7_RX_PATH_CFG1, 0x08, 0x08);
+ 	regmap_update_bits(rm, WCD934X_CDC_RX8_RX_PATH_CFG1, 0x08, 0x08);
+@@ -3012,6 +3032,17 @@ static int wcd934x_comp_probe(struct snd_soc_component *component)
+ 	for (i = 0; i < NUM_CODEC_DAIS; i++)
+ 		INIT_LIST_HEAD(&wcd->dai[i].slim_ch_list);
+ 
++	/*
++	 * Initialize the slimbus port channel lists.  Without this the
++	 * rx_chs[]/tx_chs[] list heads contain garbage until set_channel_map()
++	 * runs, so list_empty() in slim_rx_mux_put() reports a false "PORT is
++	 * busy" and every SLIM RX/TX MUX write silently fails on a freshly
++	 * probed codec.
++	 */
++	for (i = 0; i < WCD934X_RX_MAX; i++)
++		INIT_LIST_HEAD(&wcd->rx_chs[i].list);
++	for (i = 0; i < WCD934X_TX_MAX; i++)
++		INIT_LIST_HEAD(&wcd->tx_chs[i].list);
+ 
+ 	ret = wcd934x_init_dmic(component);
+ 	if (ret) {
+diff --git a/sound/soc/qcom/Kconfig b/sound/soc/qcom/Kconfig
+index e6e24f3b9922..edac13edb6e9 100644
+--- a/sound/soc/qcom/Kconfig
++++ b/sound/soc/qcom/Kconfig
+@@ -77,6 +77,18 @@ config SND_SOC_QDSP6_COMMON
+ config SND_SOC_QDSP6_CORE
+ 	tristate
+ 
++config SND_SOC_QDSP6_VOICE
++	tristate "Qualcomm QDSP6 Core Voice Driver (CVD) client"
++	depends on SND_SOC_QDSP6
++	help
++	  Say Y or M to enable a client for the ADSP voice services (MVM,
++	  CVS, CVP) used for circuit-switched and VoLTE calls.  Media is
++	  vocoded on the ADSP and RTP is terminated by the modem, so this only
++	  builds and routes the voice session.
++
++	  There is no ALSA front-end for it yet: a session is started and
++	  stopped through debugfs.  Not needed for playback or capture.
++
+ config SND_SOC_QDSP6_AFE
+ 	tristate
+ 
+diff --git a/sound/soc/qcom/common.h b/sound/soc/qcom/common.h
+index 1b8d3f90bffa..6a41f5a12ff0 100644
+--- a/sound/soc/qcom/common.h
++++ b/sound/soc/qcom/common.h
+@@ -6,6 +6,15 @@
+ 
+ #include <sound/soc.h>
+ 
++#define LPASS_MAX_PORT			(SLIMBUS_8_TX + 1)
++
++struct qcom_snd_tdm_slot_cfg {
++	unsigned int tx_mask;
++	unsigned int rx_mask;
++	unsigned int slots;
++	unsigned int slot_width;
++};
++
+ int qcom_snd_parse_of(struct snd_soc_card *card);
+ int qcom_snd_wcd_jack_setup(struct snd_soc_pcm_runtime *rtd,
+ 			    struct snd_soc_jack *jack, bool *jack_setup);
+diff --git a/sound/soc/qcom/qdsp6/Makefile b/sound/soc/qcom/qdsp6/Makefile
+index 67267304e7e9..6cfdd645b786 100644
+--- a/sound/soc/qcom/qdsp6/Makefile
++++ b/sound/soc/qcom/qdsp6/Makefile
+@@ -4,6 +4,7 @@ snd-q6apm-y := q6apm.o audioreach.o topology.o
+ 
+ obj-$(CONFIG_SND_SOC_QDSP6_COMMON) += snd-q6dsp-common.o
+ obj-$(CONFIG_SND_SOC_QDSP6_CORE) += q6core.o
++obj-$(CONFIG_SND_SOC_QDSP6_VOICE) += q6voice.o
+ obj-$(CONFIG_SND_SOC_QDSP6_AFE) += q6afe.o
+ obj-$(CONFIG_SND_SOC_QDSP6_AFE_DAI) += q6afe-dai.o
+ obj-$(CONFIG_SND_SOC_QDSP6_AFE_CLOCKS) += q6afe-clocks.o
+diff --git a/sound/soc/qcom/qdsp6/q6adm.h b/sound/soc/qcom/qdsp6/q6adm.h
+index 4f56999b7fab..6c65c88857c6 100644
+--- a/sound/soc/qcom/qdsp6/q6adm.h
++++ b/sound/soc/qcom/qdsp6/q6adm.h
+@@ -7,6 +7,17 @@
+ #define MAX_COPPS_PER_PORT	8
+ #define NULL_COPP_TOPOLOGY	0x00010312
+ 
++/*
++ * ADM COPP topology IDs.  The processing chain each one names lives in the
++ * ADSP firmware; ACDB calibration only tunes it, so selecting a topology is
++ * enough to instantiate the modules with their firmware defaults.
++ */
++#define DEFAULT_COPP_TOPOLOGY			0x00010314
++#define VPM_TX_SM_ECNS_COPP_TOPOLOGY		0x00010F71
++#define VPM_TX_DM_FLUENCE_COPP_TOPOLOGY		0x00010F72
++#define VPM_TX_QMIC_FLUENCE_COPP_TOPOLOGY	0x00010F75
++#define VPM_TX_DM_RFECNS_COPP_TOPOLOGY		0x00010F86
++
+ /* multiple copp per stream. */
+ struct route_payload {
+ 	int num_copps;
+diff --git a/sound/soc/qcom/qdsp6/q6afe-dai.c b/sound/soc/qcom/qdsp6/q6afe-dai.c
+index 0f47aadaabe1..48aa5b0e878e 100644
+--- a/sound/soc/qcom/qdsp6/q6afe-dai.c
++++ b/sound/soc/qcom/qdsp6/q6afe-dai.c
+@@ -7,6 +7,7 @@
+ #include <linux/init.h>
+ #include <linux/module.h>
+ #include <linux/device.h>
++#include <linux/mutex.h>
+ #include <linux/platform_device.h>
+ #include <linux/slab.h>
+ #include <sound/pcm.h>
+@@ -32,13 +33,16 @@ struct q6afe_dai_data {
+ 	struct q6afe_port_config port_config[AFE_PORT_MAX];
+ 	bool is_port_started[AFE_PORT_MAX];
+ 	struct q6afe_dai_priv_data priv[AFE_PORT_MAX];
++	struct q6afe_cdc_slimbus_slave_cfg cdc_slimbus_cfg;
++	struct mutex cdc_slimbus_cfg_lock;
++	bool cdc_slimbus_cfg_valid;
++	bool cdc_slimbus_configured;
+ };
+ 
+ static int q6slim_hw_params(struct snd_pcm_substream *substream,
+ 			    struct snd_pcm_hw_params *params,
+ 			    struct snd_soc_dai *dai)
+ {
+-
+ 	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
+ 	struct q6afe_slim_cfg *slim = &dai_data->port_config[dai->id].slim;
+ 
+@@ -384,6 +388,63 @@ static void q6afe_dai_shutdown(struct snd_pcm_substream *substream,
+ 
+ }
+ 
++static int q6afe_dai_configure_cdc_slimbus(struct snd_soc_dai *dai)
++{
++	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
++	struct q6afe_cdc_slimbus_slave_cfg *cfg = &dai_data->cdc_slimbus_cfg;
++	int rc;
++
++	mutex_lock(&dai_data->cdc_slimbus_cfg_lock);
++
++	if (!dai_data->cdc_slimbus_cfg_valid ||
++	    dai_data->cdc_slimbus_configured) {
++		rc = 0;
++		goto unlock;
++	}
++
++	if (!dai->dev->parent) {
++		rc = -ENODEV;
++		goto unlock;
++	}
++
++	rc = q6afe_set_tavil_cdc_registers(dai->dev->parent);
++	if (rc) {
++		dev_err(dai->dev, "failed to send CDC_REG_CFG table: %d\n", rc);
++		goto unlock;
++	}
++
++	rc = q6afe_set_cdc_reg_page_cfg(dai->dev->parent);
++	if (rc) {
++		dev_err(dai->dev, "failed to send CDC_REG_PAGE_CFG: %d\n", rc);
++		goto unlock;
++	}
++
++	rc = q6afe_set_cdc_slimbus_slave_cfg(dai->dev->parent, cfg);
++	if (rc) {
++		dev_err(dai->dev,
++			"failed to configure CDC SLIMbus slave: %d\n", rc);
++		goto unlock;
++	}
++
++	rc = q6afe_set_cdc_reg_cfg_init(dai->dev->parent);
++	if (rc) {
++		dev_err(dai->dev,
++			"failed to send CDC_REG_CFG_INIT: %d\n", rc);
++		goto unlock;
++	}
++
++	dai_data->cdc_slimbus_configured = true;
++	dev_dbg(dai->dev,
++		"configured CDC SLIMbus slave %08x:%08x (tx %u, rx %u)\n",
++		cfg->device_enum_addr_msw, cfg->device_enum_addr_lsw,
++		cfg->tx_slave_port_offset, cfg->rx_slave_port_offset);
++
++unlock:
++	mutex_unlock(&dai_data->cdc_slimbus_cfg_lock);
++
++	return rc;
++}
++
+ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
+ 		struct snd_soc_dai *dai)
+ {
+@@ -406,6 +467,19 @@ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
+ 					&dai_data->port_config[dai->id].hdmi);
+ 		break;
+ 	case SLIMBUS_0_RX ... SLIMBUS_6_TX:
++		rc = q6afe_dai_configure_cdc_slimbus(dai);
++		if (rc)
++			return rc;
++
++		q6afe_slim_port_prepare(dai_data->port[dai->id],
++					&dai_data->port_config[dai->id].slim);
++		break;
++	case SLIMBUS_7_RX ... SLIMBUS_8_TX:
++		/*
++		 * The WCN399x BT/FM slave needs no CDC slave
++		 * configuration; that is the WCD interface-device
++		 * programming for the first slimbus engine.
++		 */
+ 		q6afe_slim_port_prepare(dai_data->port[dai->id],
+ 					&dai_data->port_config[dai->id].slim);
+ 		break;
+@@ -453,9 +527,17 @@ static int q6slim_set_channel_map(struct snd_soc_dai *dai,
+ {
+ 	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
+ 	struct q6afe_port_config *pcfg = &dai_data->port_config[dai->id];
++	bool is_tx = dai->id & 0x1;
+ 	int i;
+ 
+-	if (dai->id & 0x1) {
++	/*
++	 * The token parity encodes RX-even/TX-odd for the existing ports,
++	 * but SLIMBUS_8_TX (the WCN399x BT/FM capture port) breaks it.
++	 */
++	if (dai->id == SLIMBUS_8_TX)
++		is_tx = true;
++
++	if (is_tx) {
+ 		/* TX */
+ 		if (!tx_slot) {
+ 			pr_err("%s: tx slot not found\n", __func__);
+@@ -534,6 +616,9 @@ static const struct snd_soc_dapm_route q6afe_dapm_routes[] = {
+ 	{"SLIMBUS_4_TX", NULL, "Slimbus4 Capture"},
+ 	{"SLIMBUS_5_TX", NULL, "Slimbus5 Capture"},
+ 	{"SLIMBUS_6_TX", NULL, "Slimbus6 Capture"},
++	{"Slimbus7 Playback", NULL, "SLIMBUS_7_RX"},
++	{"SLIMBUS_7_TX", NULL, "Slimbus7 Capture"},
++	{"SLIMBUS_8_TX", NULL, "Slimbus8 Capture"},
+ 
+ 	{"Primary MI2S Playback", NULL, "PRI_MI2S_RX"},
+ 	{"Secondary MI2S Playback", NULL, "SEC_MI2S_RX"},
+@@ -770,6 +855,11 @@ static const struct snd_soc_dapm_widget q6afe_dai_widgets[] = {
+ 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_4_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
+ 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_5_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
+ 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_6_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_AIF_IN("SLIMBUS_7_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_AIF_OUT("SLIMBUS_7_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_AIF_OUT("SLIMBUS_8_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_AIF_IN("SEN_MI2S_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_AIF_OUT("SEN_MI2S_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
+ 	SND_SOC_DAPM_AIF_IN("QUIN_MI2S_RX", NULL,
+ 						0, SND_SOC_NOPM, 0, 0),
+ 	SND_SOC_DAPM_AIF_OUT("QUIN_MI2S_TX", NULL,
+@@ -1100,20 +1190,58 @@ static void of_q6afe_parse_dai_data(struct device *dev,
+ 	}
+ }
+ 
++static void of_q6afe_parse_cdc_slimbus_cfg(struct device *dev,
++					    struct q6afe_dai_data *data)
++{
++	struct device_node *node;
++	u32 cfg[4];
++	int ret;
++
++	if (!dev->parent)
++		return;
++
++	node = dev->parent->of_node;
++	if (!node)
++		return;
++
++	ret = of_property_read_u32_array(node,
++					 "qcom,cdc-slimbus-slave-config",
++					 cfg, ARRAY_SIZE(cfg));
++	if (ret)
++		return;
++
++	if (cfg[2] > 0xffff || cfg[3] > 0xffff) {
++		dev_err(dev, "invalid CDC SLIMbus port offsets\n");
++		return;
++	}
++
++	data->cdc_slimbus_cfg.minor_version = 1;
++	data->cdc_slimbus_cfg.device_enum_addr_lsw = cfg[0];
++	data->cdc_slimbus_cfg.device_enum_addr_msw = cfg[1];
++	data->cdc_slimbus_cfg.tx_slave_port_offset = cfg[2];
++	data->cdc_slimbus_cfg.rx_slave_port_offset = cfg[3];
++	data->cdc_slimbus_cfg_valid = true;
++}
++
+ static int q6afe_dai_dev_probe(struct platform_device *pdev)
+ {
+ 	struct q6dsp_audio_port_dai_driver_config cfg;
+ 	struct snd_soc_dai_driver *dais;
+ 	struct q6afe_dai_data *dai_data;
+ 	struct device *dev = &pdev->dev;
+-	int num_dais;
++	int num_dais, ret;
+ 
+ 	dai_data = devm_kzalloc(dev, sizeof(*dai_data), GFP_KERNEL);
+ 	if (!dai_data)
+ 		return -ENOMEM;
+ 
++	ret = devm_mutex_init(dev, &dai_data->cdc_slimbus_cfg_lock);
++	if (ret)
++		return ret;
++
+ 	dev_set_drvdata(dev, dai_data);
+ 	of_q6afe_parse_dai_data(dev, dai_data);
++	of_q6afe_parse_cdc_slimbus_cfg(dev, dai_data);
+ 
+ 	cfg.q6hdmi_ops = &q6hdmi_ops;
+ 	cfg.q6slim_ops = &q6slim_ops;
+diff --git a/sound/soc/qcom/qdsp6/q6afe.c b/sound/soc/qcom/qdsp6/q6afe.c
+index 7b59d514b432..b0f0f7575a4e 100644
+--- a/sound/soc/qcom/qdsp6/q6afe.c
++++ b/sound/soc/qcom/qdsp6/q6afe.c
+@@ -34,7 +34,11 @@
+ #define AFE_MODULE_AUDIO_DEV_INTERFACE	0x0001020C
+ #define AFE_MODULE_TDM			0x0001028A
+ 
++#define AFE_MODULE_CDC_DEV_CFG		0x00010234
+ #define AFE_PARAM_ID_CDC_SLIMBUS_SLAVE_CFG 0x00010235
++#define AFE_PARAM_ID_CDC_REG_CFG	0x00010236
++#define AFE_PARAM_ID_CDC_REG_CFG_INIT	0x00010237
++#define AFE_PARAM_ID_CDC_REG_PAGE_CFG	0x00010296
+ #define AFE_PARAM_ID_USB_AUDIO_DEV_PARAMS    0x000102A5
+ #define AFE_PARAM_ID_USB_AUDIO_DEV_LPCM_FMT 0x000102AA
+ 
+@@ -86,6 +90,9 @@
+ #define AFE_PORT_ID_USB_RX                       0x7000
+ 
+ #define AFE_API_VERSION_SLIMBUS_CONFIG 0x1
++/* SLIMbus device IDs, numbered from 0 as in the ADSP's apr_audio-v2.h */
++#define AFE_SLIMBUS_DEVICE_1 0
++#define AFE_SLIMBUS_DEVICE_2 1
+ /* Clock set API version */
+ #define AFE_API_VERSION_CLOCK_SET 1
+ #define Q6AFE_LPASS_CLK_CONFIG_API_VERSION	0x1
+@@ -120,6 +127,12 @@
+ #define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_6_RX      0x400c
+ /* SLIMbus Tx port on channel 6. */
+ #define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_6_TX      0x400d
++/* SLIMbus Rx port on channel 7. */
++#define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_RX      0x400e
++/* SLIMbus Tx port on channel 7. */
++#define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_TX      0x400f
++/* SLIMbus Tx port on channel 8, the WCN399x BT/FM slave. */
++#define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_8_TX      0x4011
+ #define AFE_PORT_ID_PRIMARY_MI2S_RX         0x1000
+ #define AFE_PORT_ID_PRIMARY_MI2S_TX         0x1001
+ #define AFE_PORT_ID_SECONDARY_MI2S_RX       0x1002
+@@ -370,6 +383,7 @@
+ #define AFE_CMD_RESP_AVAIL	0
+ #define AFE_CMD_RESP_NONE	1
+ #define AFE_CLK_TOKEN		1024
++#define AFE_CDC_SLIMBUS_TOKEN	1025
+ 
+ struct q6afe {
+ 	struct apr_device *apr;
+@@ -698,6 +712,12 @@ static struct afe_port_map port_maps[AFE_PORT_MAX] = {
+ 				SLIMBUS_5_TX, 0, 1},
+ 	[SLIMBUS_6_TX] = { AFE_PORT_ID_SLIMBUS_MULTI_CHAN_6_TX,
+ 				SLIMBUS_6_TX, 0, 1},
++	[SLIMBUS_7_RX] = { AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_RX,
++				SLIMBUS_7_RX, 1, 1},
++	[SLIMBUS_7_TX] = { AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_TX,
++				SLIMBUS_7_TX, 0, 1},
++	[SLIMBUS_8_TX] = { AFE_PORT_ID_SLIMBUS_MULTI_CHAN_8_TX,
++				SLIMBUS_8_TX, 0, 1},
+ 	[PRIMARY_MI2S_RX] = { AFE_PORT_ID_PRIMARY_MI2S_RX,
+ 				PRIMARY_MI2S_RX, 1, 1},
+ 	[PRIMARY_MI2S_TX] = { AFE_PORT_ID_PRIMARY_MI2S_TX,
+@@ -987,7 +1007,8 @@ static int q6afe_callback(struct apr_device *adev, struct apr_resp_pkt *data)
+ 				port->result = *res;
+ 				wake_up(&port->wait);
+ 				kref_put(&port->refcount, q6afe_port_free);
+-			} else if (hdr->token == AFE_CLK_TOKEN) {
++			} else if (hdr->token == AFE_CLK_TOKEN ||
++				   hdr->token == AFE_CDC_SLIMBUS_TOKEN) {
+ 				afe->result = *res;
+ 				wake_up(&afe->wait);
+ 			}
+@@ -1089,7 +1110,11 @@ static int q6afe_set_param(struct q6afe *afe, struct q6afe_port *port,
+ 	param = p + APR_HDR_SIZE;
+ 	pdata = p + APR_HDR_SIZE + sizeof(*param);
+ 	pl = p + APR_HDR_SIZE + sizeof(*param) + sizeof(*pdata);
+-	memcpy(pl, data, psize);
++	if (psize) {
++		if (!data)
++			return -EINVAL;
++		memcpy(pl, data, psize);
++	}
+ 
+ 	pkt->hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+ 					   APR_HDR_LEN(APR_HDR_SIZE),
+@@ -1116,6 +1141,132 @@ static int q6afe_set_param(struct q6afe *afe, struct q6afe_port *port,
+ 	return ret;
+ }
+ 
++int q6afe_set_cdc_slimbus_slave_cfg(struct device *dev,
++				    const struct q6afe_cdc_slimbus_slave_cfg *cfg)
++{
++	struct q6afe *afe = dev_get_drvdata(dev);
++
++	if (!afe)
++		return -ENODEV;
++	if (!cfg)
++		return -EINVAL;
++
++	return q6afe_set_param(afe, NULL, (void *)cfg,
++			       AFE_PARAM_ID_CDC_SLIMBUS_SLAVE_CFG,
++			       AFE_MODULE_CDC_DEV_CFG, sizeof(*cfg),
++			       AFE_CDC_SLIMBUS_TOKEN);
++}
++EXPORT_SYMBOL_GPL(q6afe_set_cdc_slimbus_slave_cfg);
++
++int q6afe_set_cdc_reg_cfg_init(struct device *dev)
++{
++	struct q6afe *afe = dev_get_drvdata(dev);
++
++	if (!afe)
++		return -ENODEV;
++
++	/*
++	 * Downstream sends AFE_PARAM_ID_CDC_REG_CFG_INIT (empty payload)
++	 * immediately after CDC SLIMbus slave config.  ADSP uses this as
++	 * the "codec register map is ready" barrier before sourcing PCM
++	 * onto SLIMbus shared channels.
++	 */
++	return q6afe_set_param(afe, NULL, NULL,
++			       AFE_PARAM_ID_CDC_REG_CFG_INIT,
++			       AFE_MODULE_CDC_DEV_CFG, 0,
++			       AFE_CDC_SLIMBUS_TOKEN);
++}
++EXPORT_SYMBOL_GPL(q6afe_set_cdc_reg_cfg_init);
++
++/*
++ * Tavil/WCD934x AFE_PARAM_ID_CDC_REG_CFG table from downstream
++ * android_kernel_lge_msm8998 wcd934x.c audio_reg_cfg[].  Addresses are
++ * WCD934X_REGISTER_START_OFFSET (0x800) plus the codec register.  Field
++ * types are the downstream wcd9xxx-common-v2.h enum values.  msm8998
++ * sends this table before SLIMbus slave-cfg + REG_CFG_INIT.
++ */
++struct q6afe_cdc_reg_cfg {
++	u32	minor_version;
++	u32	reg_logical_addr;
++	u32	reg_field_type;
++	u32	reg_field_bit_mask;
++	u16	reg_bit_width;
++	u16	reg_offset_scale;
++} __packed;
++
++static const struct q6afe_cdc_reg_cfg tavil_cdc_reg_cfg[] = {
++	{ 1, 0x0a81,  4, 0x01, 8, 0 }, /* MAD_MAIN_CTL_1 / HW_MAD_AUDIO_ENABLE */
++	{ 1, 0x0a85,  7, 0x0f, 8, 0 }, /* MAD_AUDIO_CTL_3 / SLEEP_TIME */
++	{ 1, 0x0a86, 10, 0x01, 8, 0 }, /* MAD_AUDIO_CTL_4 / TX_AUDIO_SWITCH_OFF */
++	{ 1, 0x0c01, 13, 0x02, 8, 0 }, /* INTR_CFG / MAD_AUDIO_INT_DEST */
++	{ 1, 0x0c24, 18, 0x01, 8, 0 }, /* INTR_PIN2_MASK3 */
++	{ 1, 0x0c2c, 23, 0x01, 8, 0 }, /* INTR_PIN2_STATUS3 */
++	{ 1, 0x0c34, 28, 0x01, 8, 0 }, /* INTR_PIN2_CLEAR3 */
++	{ 1, 0x0850, 33, 0x1e, 8, 1 }, /* PGD TX base / WATERMARK_N */
++	{ 1, 0x0850, 34, 0x01, 8, 1 }, /* PGD TX base / ENABLE_N */
++	{ 1, 0x0840, 35, 0x1e, 8, 1 }, /* PGD RX base / WATERMARK_N */
++	{ 1, 0x0840, 36, 0x01, 8, 1 }, /* PGD RX base / ENABLE_N */
++	{ 1, 0x120b, 41, 0x04, 8, 0 }, /* ANC0_IIR_ADAPT / FF_GAIN_ADAPTIVE */
++	{ 1, 0x120b, 42, 0x08, 8, 0 }, /* ANC0_IIR_ADAPT / FFGAIN_ADAPTIVE_EN */
++	{ 1, 0x120e, 43, 0xff, 8, 0 }, /* ANC0_FF_A_GAIN / GAIN_CONTROL */
++	{ 1, 0x0900, 37, 0xff, 8, 4 }, /* TX MULTI_CHNL_0 */
++	{ 1, 0x0901, 38, 0xff, 8, 4 }, /* TX MULTI_CHNL_1 */
++	{ 1, 0x0980, 39, 0xff, 8, 4 }, /* RX MULTI_CHNL_0 */
++	{ 1, 0x0981, 40, 0xff, 8, 4 }, /* RX MULTI_CHNL_1 */
++};
++
++int q6afe_set_tavil_cdc_registers(struct device *dev)
++{
++	struct q6afe *afe = dev_get_drvdata(dev);
++	int i, rc;
++
++	if (!afe)
++		return -ENODEV;
++
++	for (i = 0; i < ARRAY_SIZE(tavil_cdc_reg_cfg); i++) {
++		rc = q6afe_set_param(afe, NULL,
++				     (void *)&tavil_cdc_reg_cfg[i],
++				     AFE_PARAM_ID_CDC_REG_CFG,
++				     AFE_MODULE_CDC_DEV_CFG,
++				     sizeof(tavil_cdc_reg_cfg[i]),
++				     AFE_CDC_SLIMBUS_TOKEN);
++		if (rc) {
++			dev_err(dev, "CDC_REG_CFG[%d] failed: %d\n", i, rc);
++			return rc;
++		}
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(q6afe_set_tavil_cdc_registers);
++
++int q6afe_set_cdc_reg_page_cfg(struct device *dev)
++{
++	struct q6afe *afe = dev_get_drvdata(dev);
++	struct {
++		u32 minor_version;
++		u32 enable;
++		u32 proc_id;
++	} __packed cfg = {
++		.minor_version = 1,
++		.enable = 1,
++		.proc_id = 1, /* AFE_CDC_REG_PAGE_ASSIGN_PROC_ID_1 */
++	};
++
++	if (!afe)
++		return -ENODEV;
++
++	/*
++	 * Downstream tavil_cdc_reg_page_cfg. msm8998 sends this after
++	 * AFE_CDC_REGISTERS_CONFIG and before AFE_SLIMBUS_SLAVE_CONFIG.
++	 */
++	return q6afe_set_param(afe, NULL, &cfg,
++			       AFE_PARAM_ID_CDC_REG_PAGE_CFG,
++			       AFE_MODULE_CDC_DEV_CFG, sizeof(cfg),
++			       AFE_CDC_SLIMBUS_TOKEN);
++}
++EXPORT_SYMBOL_GPL(q6afe_set_cdc_reg_page_cfg);
++
+ static int q6afe_port_set_param(struct q6afe_port *port, void *data,
+ 				int param_id, int module_id, int psize)
+ {
+@@ -1334,6 +1485,13 @@ void q6afe_slim_port_prepare(struct q6afe_port *port,
+ 	union afe_port_config *pcfg = &port->port_cfg;
+ 
+ 	pcfg->slim_cfg.sb_cfg_minor_version = AFE_API_VERSION_SLIMBUS_CONFIG;
++	/*
++	 * SLIMBUS_7/8 live on the second slimbus engine, where the
++	 * WCN399x Bluetooth/FM slave hangs (downstream msm-dai-q6).
++	 */
++	pcfg->slim_cfg.slimbus_dev_id = (port->token >= SLIMBUS_7_RX) ?
++					AFE_SLIMBUS_DEVICE_2 :
++					AFE_SLIMBUS_DEVICE_1;
+ 	pcfg->slim_cfg.sample_rate = cfg->sample_rate;
+ 	pcfg->slim_cfg.bit_width = cfg->bit_width;
+ 	pcfg->slim_cfg.num_channels = cfg->num_channels;
+@@ -1342,7 +1500,6 @@ void q6afe_slim_port_prepare(struct q6afe_port *port,
+ 	pcfg->slim_cfg.shared_ch_mapping[1] = cfg->ch_mapping[1];
+ 	pcfg->slim_cfg.shared_ch_mapping[2] = cfg->ch_mapping[2];
+ 	pcfg->slim_cfg.shared_ch_mapping[3] = cfg->ch_mapping[3];
+-
+ }
+ EXPORT_SYMBOL_GPL(q6afe_slim_port_prepare);
+ 
+@@ -1777,6 +1934,9 @@ struct q6afe_port *q6afe_port_get_from_id(struct device *dev, int id)
+ 	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_4_RX:
+ 	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_5_RX:
+ 	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_6_RX:
++	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_RX:
++	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_TX:
++	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_8_TX:
+ 		cfg_type = AFE_PARAM_ID_SLIMBUS_CONFIG;
+ 		break;
+ 
+diff --git a/sound/soc/qcom/qdsp6/q6afe.h b/sound/soc/qcom/qdsp6/q6afe.h
+index a29abe4ce436..9c278577ffd3 100644
+--- a/sound/soc/qcom/qdsp6/q6afe.h
++++ b/sound/soc/qcom/qdsp6/q6afe.h
+@@ -203,6 +203,18 @@ struct q6afe_cdc_dma_cfg {
+ 	u16	active_channels_mask;
+ };
+ 
++/*
++ * AFE_PARAM_ID_CDC_SLIMBUS_SLAVE_CFG payload.  It identifies the codec
++ * SLIMbus slave and its transmit/receive port bases to the ADSP.
++ */
++struct q6afe_cdc_slimbus_slave_cfg {
++	u32	minor_version;
++	u32	device_enum_addr_lsw;
++	u32	device_enum_addr_msw;
++	u16	tx_slave_port_offset;
++	u16	rx_slave_port_offset;
++} __packed;
++
+ /**
+  * struct q6afe_usb_cfg
+  * @cfg_minor_version: Minor version used for tracking USB audio device
+@@ -267,6 +279,11 @@ int q6afe_port_set_sysclk(struct q6afe_port *port, int clk_id,
+ 			  unsigned int freq, int dir);
+ int q6afe_set_lpass_clock(struct device *dev, int clk_id, int attri,
+ 			  int clk_root, unsigned int freq);
++int q6afe_set_cdc_slimbus_slave_cfg(struct device *dev,
++				    const struct q6afe_cdc_slimbus_slave_cfg *cfg);
++int q6afe_set_cdc_reg_cfg_init(struct device *dev);
++int q6afe_set_tavil_cdc_registers(struct device *dev);
++int q6afe_set_cdc_reg_page_cfg(struct device *dev);
+ int q6afe_vote_lpass_core_hw(struct device *dev, uint32_t hw_block_id,
+ 			     const char *client_name, uint32_t *client_handle);
+ int q6afe_unvote_lpass_core_hw(struct device *dev, uint32_t hw_block_id,
+diff --git a/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c b/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c
+index 4eed54b071a5..87a27ce2f86f 100644
+--- a/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c
++++ b/sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c
+@@ -348,6 +348,44 @@ static struct snd_soc_dai_driver q6dsp_audio_fe_dais[] = {
+ 			.rate_max = 192000,
+ 		},
+ 	}, {
++		.playback = {
++			.stream_name = "Slimbus7 Playback",
++			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
++				 SNDRV_PCM_RATE_48000,
++			.formats = SNDRV_PCM_FMTBIT_S16_LE,
++			.channels_min = 1,
++			.channels_max = 2,
++			.rate_min = 8000,
++			.rate_max = 48000,
++		},
++		.name = "SLIMBUS_7_RX",
++		.id = SLIMBUS_7_RX,
++	}, {
++		.name = "SLIMBUS_7_TX",
++		.id = SLIMBUS_7_TX,
++		.capture = {
++			.stream_name = "Slimbus7 Capture",
++			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
++				 SNDRV_PCM_RATE_48000,
++			.formats = SNDRV_PCM_FMTBIT_S16_LE,
++			.channels_min = 1,
++			.channels_max = 1,
++			.rate_min = 8000,
++			.rate_max = 48000,
++		},
++	}, {
++		.name = "SLIMBUS_8_TX",
++		.id = SLIMBUS_8_TX,
++		.capture = {
++			.stream_name = "Slimbus8 Capture",
++			.rates = SNDRV_PCM_RATE_48000,
++			.formats = SNDRV_PCM_FMTBIT_S16_LE,
++			.channels_min = 1,
++			.channels_max = 2,
++			.rate_min = 48000,
++			.rate_max = 48000,
++		},
++
+ 		.playback = {
+ 			.stream_name = "Primary MI2S Playback",
+ 			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
+@@ -632,6 +670,7 @@ struct snd_soc_dai_driver *q6dsp_audio_ports_set_config(struct device *dev,
+ 			q6dsp_audio_fe_dais[i].ops = cfg->q6hdmi_ops;
+ 			break;
+ 		case SLIMBUS_0_RX ... SLIMBUS_6_TX:
++		case SLIMBUS_7_RX ... SLIMBUS_8_TX:
+ 			q6dsp_audio_fe_dais[i].ops = cfg->q6slim_ops;
+ 			break;
+ 		case QUINARY_MI2S_RX ... QUINARY_MI2S_TX:
+diff --git a/sound/soc/qcom/qdsp6/q6routing.c b/sound/soc/qcom/qdsp6/q6routing.c
+index f49243daa517..bdbc31c361ba 100644
+--- a/sound/soc/qcom/qdsp6/q6routing.c
++++ b/sound/soc/qcom/qdsp6/q6routing.c
+@@ -339,14 +339,73 @@ struct session_data {
+ 	struct q6copp *copps[MAX_COPPS_PER_PORT];
+ };
+ 
++static struct msm_routing_data *routing_data;
++
+ struct msm_routing_data {
+ 	struct session_data sessions[MAX_SESSIONS];
+ 	struct session_data port_data[AFE_MAX_PORTS];
+ 	struct device *dev;
+ 	struct mutex lock;
++	unsigned int tx_topology;
++};
++
++/*
++ * Capture-path COPP topology.
++ *
++ * The ADSP builds the processing chain for a COPP from the topology ID given
++ * in ADM_CMD_DEVICE_OPEN_V5, using definitions carried in its own firmware;
++ * ACDB calibration only retunes what that chain already contains.  Opening
++ * with NULL_COPP_TOPOLOGY, which is all this driver could ever do before,
++ * therefore gives a bit-transparent capture path with no processing at all.
++ *
++ * The other entries here name the echo-cancellation and noise-suppression
++ * chains.  Which one a device wants is a board property, so it is left to
++ * userspace (a UCM device's EnableSequence) rather than guessed here, and the
++ * default stays NULL_COPP_TOPOLOGY so behaviour is unchanged unless asked for.
++ */
++static const char * const tx_topology_text[] = {
++	"None", "SM_ECNS", "DM_Fluence", "QMIC_Fluence", "DM_RFECNS",
++};
++
++static const unsigned int tx_topology_id[] = {
++	NULL_COPP_TOPOLOGY,
++	VPM_TX_SM_ECNS_COPP_TOPOLOGY,
++	VPM_TX_DM_FLUENCE_COPP_TOPOLOGY,
++	VPM_TX_QMIC_FLUENCE_COPP_TOPOLOGY,
++	VPM_TX_DM_RFECNS_COPP_TOPOLOGY,
++};
++
++static SOC_ENUM_SINGLE_EXT_DECL(tx_topology_enum, tx_topology_text);
++
++static int msm_routing_tx_topology_get(struct snd_kcontrol *kcontrol,
++				       struct snd_ctl_elem_value *ucontrol)
++{
++	ucontrol->value.enumerated.item[0] = routing_data->tx_topology;
++
++	return 0;
++}
++
++static int msm_routing_tx_topology_put(struct snd_kcontrol *kcontrol,
++				       struct snd_ctl_elem_value *ucontrol)
++{
++	unsigned int item = ucontrol->value.enumerated.item[0];
++
++	if (item >= ARRAY_SIZE(tx_topology_id))
++		return -EINVAL;
++
++	if (routing_data->tx_topology == item)
++		return 0;
++
++	routing_data->tx_topology = item;
++
++	return 1;
++}
++
++static const struct snd_kcontrol_new msm_routing_controls[] = {
++	SOC_ENUM_EXT("TX COPP Topology", tx_topology_enum,
++		     msm_routing_tx_topology_get, msm_routing_tx_topology_put),
+ };
+ 
+-static struct msm_routing_data *routing_data;
+ 
+ /**
+  * q6routing_stream_open() - Register a new stream for route setup
+@@ -390,7 +449,10 @@ int q6routing_stream_open(int fedai_id, int perf_mode,
+ 	session->bits_per_sample = pdata->bits_per_sample;
+ 
+ 	payload.num_copps = 0; /* only RX needs to use payload */
+-	topology = NULL_COPP_TOPOLOGY;
++	if (session->path_type == ADM_PATH_LIVE_REC)
++		topology = tx_topology_id[routing_data->tx_topology];
++	else
++		topology = NULL_COPP_TOPOLOGY;
+ 	copp = q6adm_open(routing_data->dev, session->port_id,
+ 			      session->path_type, session->sample_rate,
+ 			      session->channels, topology, perf_mode,
+@@ -1122,6 +1184,8 @@ static int q6routing_reg_write(struct snd_soc_component *component,
+ static const struct snd_soc_component_driver msm_soc_routing_component = {
+ 	.probe = msm_routing_probe,
+ 	.name = DRV_NAME,
++	.controls = msm_routing_controls,
++	.num_controls = ARRAY_SIZE(msm_routing_controls),
+ 	.hw_params = routing_hw_params,
+ 	.dapm_widgets = msm_qdsp6_widgets,
+ 	.num_dapm_widgets = ARRAY_SIZE(msm_qdsp6_widgets),
+diff --git a/sound/soc/qcom/qdsp6/q6voice.c b/sound/soc/qcom/qdsp6/q6voice.c
+new file mode 100644
+index 000000000000..aa8a9411a7e3
+--- /dev/null
++++ b/sound/soc/qcom/qdsp6/q6voice.c
+@@ -0,0 +1,612 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Qualcomm Core Voice Driver (CVD) client
++ *
++ * Mainline has no voice-call support for Qualcomm ADSPs: sound/soc/qcom/qdsp6/
++ * implements the audio data path (ASM/AFE/ADM) only.  Voice calls - CS and
++ * VoLTE alike - run on three further APR services on the same ADSP domain:
++ *
++ *   MVM  (0x09)  Multimode Voice Manager - owns the session, starts/stops it
++ *   CVS  (0x0A)  Core Voice Stream      - vocoder encode/decode
++ *   CVP  (0x0B)  Core Voice Processor   - device/topology, routes to the AFE
++ *
++ * For VoLTE the modem's IMS stack terminates RTP and the ADSP vocodes, so the
++ * AP never touches media; it only has to build the session and route PCM.
++ *
++ * This client builds, starts and tears down a complete session.  Sessions are
++ * named with an ASCII string rather than a numeric VSID - "11C05000" is
++ * VOICEMMODE1, the multimode session stock uses for VoLTE.  There is no ALSA
++ * front-end yet; the session is driven from debugfs.
++ *
++ * Copyright (c) 2026 Lance <Gero3977@gmail.com>
++ */
++
++#include <linux/debugfs.h>
++#include <linux/jiffies.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/slab.h>
++#include <linux/soc/qcom/apr.h>
++#include <linux/wait.h>
++
++#define VSS_IMVM_CMD_CREATE_PASSIVE_CONTROL_SESSION	0x000110FF
++#define VSS_IMVM_CMD_CREATE_FULL_CONTROL_SESSION	0x000110FE
++#define VSS_IMVM_CMD_START_VOICE			0x00011190
++#define VSS_IMVM_CMD_STOP_VOICE				0x00011192
++
++#define VSS_ISTREAM_CMD_CREATE_PASSIVE_CONTROL_SESSION	0x00011140
++#define VSS_IMVM_CMD_ATTACH_STREAM			0x0001123C
++#define VSS_IMVM_CMD_DETACH_STREAM			0x0001123D
++#define VSS_IMVM_CMD_ATTACH_VOCPROC			0x0001123E
++#define VSS_IMVM_CMD_DETACH_VOCPROC			0x0001123F
++#define VSS_IVOCPROC_CMD_CREATE_FULL_CONTROL_SESSION_V2	0x000112BF
++#define VSS_IVOCPROC_CMD_ENABLE				0x000100C6
++#define VSS_IVOCPROC_CMD_DISABLE			0x000110E1
++#define APRV2_IBASIC_CMD_DESTROY_SESSION		0x0001003C
++
++#define VSS_IVOCPROC_DIRECTION_RX_TX			2
++#define VSS_IVOCPROC_PORT_ID_NONE			0xFFFF
++#define VSS_IVOCPROC_TOPOLOGY_ID_NONE			0x00010F70
++#define VSS_IVOCPROC_TOPOLOGY_ID_TX_SM_ECNS		0x00010F71
++#define VSS_IVOCPROC_TOPOLOGY_ID_RX_DEFAULT		0x00010F77
++
++/* AFE port IDs.  The WCD codec - and so the earpiece and the call mic - is
++ * behind SLIMbus port 0 on this board.
++ */
++#define AFE_PORT_ID_SLIMBUS_0_RX			0x4000
++#define AFE_PORT_ID_SLIMBUS_0_TX			0x4001
++#define VSS_IVOCPROC_VOCPROC_MODE_EC_INT_MIXING		0x00010F7C
++#define VSS_ICOMMON_CAL_NETWORK_ID_NONE			0x0001135E
++
++#define SESSION_NAME_LEN		20
++#define VOICEMMODE1_NAME		"11C05000"
++#define Q6VOICE_TIMEOUT_MS		5000
++
++struct vss_imvm_cmd_create_control_session {
++	char name[SESSION_NAME_LEN];
++} __packed;
++
++/* Both MVM and CVS attach commands carry a bare session handle. */
++struct vss_cmd_attach_handle {
++	u16 handle;
++} __packed;
++
++struct vss_ivocproc_cmd_create_full_control_session_v2 {
++	u16 direction;
++	u16 tx_port_id;
++	u32 tx_topology_id;
++	u16 rx_port_id;
++	u32 rx_topology_id;
++	u32 profile_id;
++	u32 vocproc_mode;
++	u16 ec_ref_port_id;
++	char name[SESSION_NAME_LEN];
++} __packed;
++
++/* One APR service endpoint (MVM, CVS or CVP). */
++struct q6voice_svc {
++	struct apr_device *adev;
++	wait_queue_head_t wait;
++
++	/* The command in flight, and what its response reported. */
++	u32 opcode;
++	u32 token;
++	bool resp_received;
++	u32 status;
++	u16 resp_port;
++
++	/* Handle of the session this service holds, or 0 for none. */
++	u16 handle;
++};
++
++static struct q6voice_svc q6voice_mvm;
++static struct q6voice_svc q6voice_cvs;
++static struct q6voice_svc q6voice_cvp;
++
++/*
++ * Serialises every command sequence against the others and against unbind:
++ * building or tearing down a session takes several commands across all three
++ * services, and none of them may be interleaved with another sequence.
++ */
++static DEFINE_MUTEX(q6voice_lock);
++
++static struct dentry *q6voice_debugfs;
++
++/* Whether a session has been started, so teardown can be idempotent. */
++static bool q6voice_session_up;
++
++/*
++ * Which AFE ports and topologies the vocproc is built against.  Exposed as
++ * parameters because the right answer depends on how the board routes voice.
++ */
++static u16 rx_port = AFE_PORT_ID_SLIMBUS_0_RX;
++module_param(rx_port, ushort, 0644);
++MODULE_PARM_DESC(rx_port, "AFE Rx port ID for the vocproc");
++
++static u16 tx_port = AFE_PORT_ID_SLIMBUS_0_TX;
++module_param(tx_port, ushort, 0644);
++MODULE_PARM_DESC(tx_port, "AFE Tx port ID for the vocproc");
++
++static uint rx_topology = VSS_IVOCPROC_TOPOLOGY_ID_RX_DEFAULT;
++module_param(rx_topology, uint, 0644);
++MODULE_PARM_DESC(rx_topology, "Rx vocproc topology ID");
++
++static uint tx_topology = VSS_IVOCPROC_TOPOLOGY_ID_TX_SM_ECNS;
++module_param(tx_topology, uint, 0644);
++MODULE_PARM_DESC(tx_topology, "Tx vocproc topology ID");
++
++static int q6voice_probe_svc(struct apr_device *adev, struct q6voice_svc *svc)
++{
++	guard(mutex)(&q6voice_lock);
++
++	init_waitqueue_head(&svc->wait);
++	svc->handle = 0;
++	svc->adev = adev;
++	dev_set_drvdata(&adev->dev, svc);
++
++	return 0;
++}
++
++/*
++ * Drop the binding before the bus tears the APR device down.  Taking the lock
++ * waits out any command sequence still using the endpoint, and every later one
++ * sees ->adev cleared and fails with -ENODEV.  Whatever session the ADSP still
++ * holds for this service is lost with the binding.
++ */
++static void q6voice_remove_svc(struct q6voice_svc *svc)
++{
++	guard(mutex)(&q6voice_lock);
++
++	svc->adev = NULL;
++	svc->handle = 0;
++	if (svc == &q6voice_mvm)
++		q6voice_session_up = false;
++}
++
++/*
++ * Every command is answered by APR_BASIC_RSP_RESULT, which echoes the command
++ * opcode and the token it was sent with.  Anything else, or a result for some
++ * other command, is not the answer being waited for.  For a create command,
++ * the handle of the new session arrives as the source port of the response.
++ */
++static int q6voice_callback_svc(struct apr_device *adev,
++				const struct apr_resp_pkt *data,
++				struct q6voice_svc *svc)
++{
++	const struct aprv2_ibasic_rsp_result_t *result;
++
++	if (data->hdr.opcode != APR_BASIC_RSP_RESULT ||
++	    data->payload_size < sizeof(*result)) {
++		dev_dbg(&adev->dev, "unexpected opcode %#x, size %d\n",
++			data->hdr.opcode, data->payload_size);
++		return 0;
++	}
++
++	result = data->payload;
++	if (result->opcode != svc->opcode || data->hdr.token != svc->token) {
++		dev_dbg(&adev->dev, "stale result for %#x (token %#x)\n",
++			result->opcode, data->hdr.token);
++		return 0;
++	}
++
++	svc->status = result->status;
++	svc->resp_port = data->hdr.src_port;
++	svc->resp_received = true;
++	wake_up(&svc->wait);
++
++	return 0;
++}
++
++/*
++ * Build and send one CVD command, and wait for its result.  @dest is the
++ * handle of the session being addressed, or 0 when creating a session.
++ * Called with q6voice_lock held.
++ */
++static int q6voice_cmd(struct q6voice_svc *svc, u32 opcode, u16 dest,
++		       const void *payload, size_t payload_size)
++{
++	size_t pkt_size = APR_HDR_SIZE + payload_size;
++	struct apr_pkt *pkt;
++	int ret;
++
++	lockdep_assert_held(&q6voice_lock);
++
++	if (!svc->adev)
++		return -ENODEV;
++
++	void *p __free(kfree) = kzalloc(pkt_size, GFP_KERNEL);
++	if (!p)
++		return -ENOMEM;
++
++	svc->opcode = opcode;
++	svc->token++;
++	svc->resp_received = false;
++
++	pkt = p;
++	pkt->hdr.hdr_field = APR_SEQ_CMD_HDR_FIELD;
++	pkt->hdr.pkt_size = pkt_size;
++	pkt->hdr.src_port = 0;
++	pkt->hdr.dest_port = dest;
++	pkt->hdr.token = svc->token;
++	pkt->hdr.opcode = opcode;
++
++	if (payload_size)
++		memcpy(p + APR_HDR_SIZE, payload, payload_size);
++
++	ret = apr_send_pkt(svc->adev, pkt);
++	if (ret < 0) {
++		dev_err(&svc->adev->dev, "failed to send %#x: %d\n", opcode, ret);
++		return ret;
++	}
++
++	ret = wait_event_timeout(svc->wait, svc->resp_received,
++				 msecs_to_jiffies(Q6VOICE_TIMEOUT_MS));
++	if (!ret) {
++		dev_err(&svc->adev->dev, "timeout waiting for %#x\n", opcode);
++		return -ETIMEDOUT;
++	}
++
++	if (svc->status) {
++		dev_err(&svc->adev->dev, "%#x failed: ADSP error %#x\n",
++			opcode, svc->status);
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int q6voice_create(struct q6voice_svc *svc, u32 opcode,
++			  const void *payload, size_t payload_size)
++{
++	int ret;
++
++	ret = q6voice_cmd(svc, opcode, 0, payload, payload_size);
++	if (ret)
++		return ret;
++
++	svc->handle = svc->resp_port;
++	dev_dbg(&svc->adev->dev, "session created, handle %#06x\n", svc->handle);
++
++	return 0;
++}
++
++static int q6voice_create_session(struct q6voice_svc *svc, u32 opcode,
++				  const char *name)
++{
++	struct vss_imvm_cmd_create_control_session session = {};
++
++	strscpy(session.name, name, sizeof(session.name));
++
++	return q6voice_create(svc, opcode, &session, sizeof(session));
++}
++
++static int q6voice_attach(struct q6voice_svc *svc, u32 opcode, u16 dest,
++			  u16 handle)
++{
++	struct vss_cmd_attach_handle attach = { .handle = handle };
++
++	return q6voice_cmd(svc, opcode, dest, &attach, sizeof(attach));
++}
++
++/*
++ * Build the vocproc against the AFE ports the board routes voice over.  The
++ * ADSP will happily create a vocproc with no ports but refuses to enable one,
++ * so the ports have to be real even before any audio flows through them.
++ */
++static int q6voice_create_vocproc(const char *name)
++{
++	struct vss_ivocproc_cmd_create_full_control_session_v2 cvp = {
++		.direction	= VSS_IVOCPROC_DIRECTION_RX_TX,
++		.tx_port_id	= tx_port,
++		.tx_topology_id	= tx_topology,
++		.rx_port_id	= rx_port,
++		.rx_topology_id	= rx_topology,
++		.profile_id	= VSS_ICOMMON_CAL_NETWORK_ID_NONE,
++		.vocproc_mode	= VSS_IVOCPROC_VOCPROC_MODE_EC_INT_MIXING,
++		.ec_ref_port_id	= VSS_IVOCPROC_PORT_ID_NONE,
++	};
++
++	strscpy(cvp.name, name, sizeof(cvp.name));
++
++	return q6voice_create(&q6voice_cvp,
++			      VSS_IVOCPROC_CMD_CREATE_FULL_CONTROL_SESSION_V2,
++			      &cvp, sizeof(cvp));
++}
++
++/*
++ * Bring up a voice session end to end.  The order matters: the modem owns the
++ * state machine for a passive session, so every object has to exist and be
++ * attached before START_VOICE.
++ */
++static int q6voice_build_session(const char *name)
++{
++	int ret;
++
++	ret = q6voice_create_session(&q6voice_mvm,
++				     VSS_IMVM_CMD_CREATE_PASSIVE_CONTROL_SESSION,
++				     name);
++	if (ret)
++		return ret;
++
++	ret = q6voice_create_session(&q6voice_cvs,
++				     VSS_ISTREAM_CMD_CREATE_PASSIVE_CONTROL_SESSION,
++				     name);
++	if (ret)
++		return ret;
++
++	ret = q6voice_attach(&q6voice_mvm, VSS_IMVM_CMD_ATTACH_STREAM,
++			     q6voice_mvm.handle, q6voice_cvs.handle);
++	if (ret)
++		return ret;
++
++	ret = q6voice_create_vocproc(name);
++	if (ret)
++		return ret;
++
++	ret = q6voice_cmd(&q6voice_cvp, VSS_IVOCPROC_CMD_ENABLE,
++			  q6voice_cvp.handle, NULL, 0);
++	if (ret)
++		return ret;
++
++	ret = q6voice_attach(&q6voice_mvm, VSS_IMVM_CMD_ATTACH_VOCPROC,
++			     q6voice_mvm.handle, q6voice_cvp.handle);
++	if (ret)
++		return ret;
++
++	ret = q6voice_cmd(&q6voice_mvm, VSS_IMVM_CMD_START_VOICE,
++			  q6voice_mvm.handle, NULL, 0);
++	if (ret)
++		return ret;
++
++	q6voice_session_up = true;
++
++	dev_info(&q6voice_mvm.adev->dev, "voice session started\n");
++
++	return 0;
++}
++
++/*
++ * Tear the session down in the exact reverse of the order it was built.  The
++ * ADSP keeps whatever it was given: a session that is not destroyed survives
++ * module unload, and a later create for the same VSID then goes unanswered
++ * rather than being refused - which presents as a timeout on a command that
++ * worked a moment earlier.
++ *
++ * Every step is attempted even if an earlier one fails; leaving an object
++ * behind is worse than a failed command, because it is what poisons the next
++ * create.
++ */
++static int q6voice_stop_voice(void)
++{
++	int ret, err = 0;
++
++	lockdep_assert_held(&q6voice_lock);
++
++	if (!q6voice_mvm.adev)
++		return -ENODEV;
++
++	if (!q6voice_session_up && !q6voice_mvm.handle &&
++	    !q6voice_cvs.handle && !q6voice_cvp.handle)
++		return 0;
++
++	if (q6voice_session_up && q6voice_mvm.handle) {
++		ret = q6voice_cmd(&q6voice_mvm, VSS_IMVM_CMD_STOP_VOICE,
++				  q6voice_mvm.handle, NULL, 0);
++		if (ret)
++			err = ret;
++	}
++
++	if (q6voice_mvm.handle && q6voice_cvp.handle) {
++		ret = q6voice_attach(&q6voice_mvm, VSS_IMVM_CMD_DETACH_VOCPROC,
++				     q6voice_mvm.handle, q6voice_cvp.handle);
++		if (ret)
++			err = ret;
++	}
++
++	if (q6voice_cvp.handle) {
++		ret = q6voice_cmd(&q6voice_cvp, VSS_IVOCPROC_CMD_DISABLE,
++				  q6voice_cvp.handle, NULL, 0);
++		if (ret)
++			err = ret;
++
++		ret = q6voice_cmd(&q6voice_cvp, APRV2_IBASIC_CMD_DESTROY_SESSION,
++				  q6voice_cvp.handle, NULL, 0);
++		if (ret)
++			err = ret;
++		else
++			q6voice_cvp.handle = 0;
++	}
++
++	if (q6voice_mvm.handle && q6voice_cvs.handle) {
++		ret = q6voice_attach(&q6voice_mvm, VSS_IMVM_CMD_DETACH_STREAM,
++				     q6voice_mvm.handle, q6voice_cvs.handle);
++		if (ret)
++			err = ret;
++	}
++
++	if (q6voice_cvs.handle) {
++		ret = q6voice_cmd(&q6voice_cvs, APRV2_IBASIC_CMD_DESTROY_SESSION,
++				  q6voice_cvs.handle, NULL, 0);
++		if (ret)
++			err = ret;
++		else
++			q6voice_cvs.handle = 0;
++	}
++
++	if (q6voice_mvm.handle) {
++		ret = q6voice_cmd(&q6voice_mvm, APRV2_IBASIC_CMD_DESTROY_SESSION,
++				  q6voice_mvm.handle, NULL, 0);
++		if (ret)
++			err = ret;
++		else
++			q6voice_mvm.handle = 0;
++	}
++
++	q6voice_session_up = false;
++
++	dev_info(&q6voice_mvm.adev->dev, "voice session torn down%s\n",
++		 err ? " (with errors)" : "");
++
++	return err;
++}
++
++static int q6voice_start_voice(const char *name)
++{
++	int ret;
++
++	lockdep_assert_held(&q6voice_lock);
++
++	if (!q6voice_mvm.adev || !q6voice_cvs.adev || !q6voice_cvp.adev)
++		return -ENODEV;
++
++	if (q6voice_session_up)
++		return -EBUSY;
++
++	ret = q6voice_build_session(name);
++	if (ret) {
++		/*
++		 * Whatever was created before the failure still exists on the
++		 * ADSP and would poison the next attempt, so unwind it here.
++		 */
++		q6voice_stop_voice();
++		return ret;
++	}
++
++	return 0;
++}
++
++static int q6voice_create_set(void *data, u64 val)
++{
++	if (!val)
++		return 0;
++
++	guard(mutex)(&q6voice_lock);
++
++	if (q6voice_mvm.handle)
++		return -EBUSY;
++
++	return q6voice_create_session(&q6voice_mvm,
++				      VSS_IMVM_CMD_CREATE_PASSIVE_CONTROL_SESSION,
++				      VOICEMMODE1_NAME);
++}
++DEFINE_DEBUGFS_ATTRIBUTE(q6voice_create_fops, NULL, q6voice_create_set, "%llu\n");
++
++static int q6voice_start_set(void *data, u64 val)
++{
++	guard(mutex)(&q6voice_lock);
++
++	if (val)
++		return q6voice_start_voice(VOICEMMODE1_NAME);
++
++	return q6voice_stop_voice();
++}
++DEFINE_DEBUGFS_ATTRIBUTE(q6voice_start_fops, NULL, q6voice_start_set, "%llu\n");
++
++static int q6voice_handle_get(void *data, u64 *val)
++{
++	*val = q6voice_mvm.handle;
++	return 0;
++}
++DEFINE_DEBUGFS_ATTRIBUTE(q6voice_handle_fops, q6voice_handle_get, NULL, "%llu\n");
++
++static int q6voice_bound_get(void *data, u64 *val)
++{
++	*val = (q6voice_mvm.adev ? BIT(0) : 0) |
++	       (q6voice_cvs.adev ? BIT(1) : 0) |
++	       (q6voice_cvp.adev ? BIT(2) : 0);
++	return 0;
++}
++DEFINE_DEBUGFS_ATTRIBUTE(q6voice_bound_fops, q6voice_bound_get, NULL, "%llu\n");
++
++static void q6voice_debugfs_init(void)
++{
++	q6voice_debugfs = debugfs_create_dir("q6voice", NULL);
++	debugfs_create_file("create_session", 0200, q6voice_debugfs, NULL,
++			    &q6voice_create_fops);
++	debugfs_create_file("start_voice", 0200, q6voice_debugfs, NULL,
++			    &q6voice_start_fops);
++	debugfs_create_file("mvm_handle", 0400, q6voice_debugfs, NULL,
++			    &q6voice_handle_fops);
++	debugfs_create_file("bound", 0400, q6voice_debugfs, NULL,
++			    &q6voice_bound_fops);
++}
++
++#define Q6VOICE_SVC_DRIVER(_name, _compat)				\
++static int q6##_name##_probe(struct apr_device *adev)			\
++{									\
++	return q6voice_probe_svc(adev, &q6voice_##_name);		\
++}									\
++static void q6##_name##_remove(struct apr_device *adev)		\
++{									\
++	q6voice_remove_svc(&q6voice_##_name);				\
++}									\
++static int q6##_name##_callback(struct apr_device *adev,		\
++				const struct apr_resp_pkt *data)	\
++{									\
++	return q6voice_callback_svc(adev, data, &q6voice_##_name);	\
++}									\
++static const struct of_device_id q6##_name##_device_id[] = {		\
++	{ .compatible = _compat },					\
++	{}								\
++};									\
++MODULE_DEVICE_TABLE(of, q6##_name##_device_id);			\
++static struct apr_driver q6##_name##_driver = {			\
++	.probe = q6##_name##_probe,					\
++	.remove = q6##_name##_remove,					\
++	.callback = q6##_name##_callback,				\
++	.driver = {							\
++		.name = "qcom-q6" #_name,				\
++		.of_match_table = q6##_name##_device_id,		\
++	},								\
++}
++
++Q6VOICE_SVC_DRIVER(mvm, "qcom,q6mvm");
++Q6VOICE_SVC_DRIVER(cvs, "qcom,q6cvs");
++Q6VOICE_SVC_DRIVER(cvp, "qcom,q6cvp");
++
++static struct apr_driver * const q6voice_drivers[] = {
++	&q6mvm_driver,
++	&q6cvs_driver,
++	&q6cvp_driver,
++};
++
++static int __init q6voice_init(void)
++{
++	int i, ret;
++
++	for (i = 0; i < ARRAY_SIZE(q6voice_drivers); i++) {
++		ret = apr_driver_register(q6voice_drivers[i]);
++		if (ret)
++			goto err;
++	}
++
++	q6voice_debugfs_init();
++
++	return 0;
++
++err:
++	while (i--)
++		apr_driver_unregister(q6voice_drivers[i]);
++
++	return ret;
++}
++module_init(q6voice_init);
++
++static void __exit q6voice_exit(void)
++{
++	int i;
++
++	debugfs_remove_recursive(q6voice_debugfs);
++
++	scoped_guard(mutex, &q6voice_lock)
++		q6voice_stop_voice();
++
++	for (i = ARRAY_SIZE(q6voice_drivers); i--; )
++		apr_driver_unregister(q6voice_drivers[i]);
++}
++module_exit(q6voice_exit);
++
++MODULE_DESCRIPTION("Q6 Core Voice Driver client");
++MODULE_LICENSE("GPL");
+diff --git a/sound/soc/qcom/sdm845.c b/sound/soc/qcom/sdm845.c
+index a233b80049ee..9ed0119a2ca3 100644
+--- a/sound/soc/qcom/sdm845.c
++++ b/sound/soc/qcom/sdm845.c
+@@ -35,6 +35,7 @@ struct sdm845_snd_data {
+ 	struct snd_soc_jack jack;
+ 	bool jack_setup;
+ 	bool slim_port_setup;
++	bool wcn_port_setup;
+ 	bool stream_prepared[AFE_PORT_MAX];
+ 	struct snd_soc_card *card;
+ 	uint32_t pri_mi2s_clk_count;
+@@ -218,7 +219,11 @@ static int sdm845_snd_hw_params(struct snd_pcm_substream *substream,
+ 	case SLIMBUS_0_RX...SLIMBUS_6_TX:
+ 		ret = sdm845_slim_snd_hw_params(substream, params);
+ 		break;
++	case SLIMBUS_7_RX...SLIMBUS_8_TX:
++		ret = sdm845_slim_snd_hw_params(substream, params);
++		break;
+ 	case QUATERNARY_MI2S_RX:
++	case TERTIARY_MI2S_RX:
+ 	case SECONDARY_MI2S_RX:
+ 		break;
+ 	default:
+@@ -325,6 +330,34 @@ static int sdm845_dai_init(struct snd_soc_pcm_runtime *rtd)
+ 		pdata->slim_port_setup = true;
+ 
+ 		break;
++	case SLIMBUS_7_RX...SLIMBUS_8_TX:
++	{
++		/*
++		 * WCN399x BT/FM slave channel allocation, from the
++		 * downstream msm8998 machine driver (msm_wcn_init):
++		 * the ADSP serves the FM TX group on channels 159/160
++		 * and SCO audio on 161 (TX) and 157/158 (RX).
++		 */
++		unsigned int wcn_rx_ch[2] = {157, 158};
++		unsigned int wcn_tx_ch[3] = {159, 160, 161};
++
++		if (pdata->wcn_port_setup || !link->no_pcm)
++			return 0;
++
++		for_each_rtd_codec_dais(rtd, i, codec_dai) {
++			rval = snd_soc_dai_set_channel_map(codec_dai,
++							  ARRAY_SIZE(wcn_tx_ch),
++							  wcn_tx_ch,
++							  ARRAY_SIZE(wcn_rx_ch),
++							  wcn_rx_ch);
++			if (rval != 0 && rval != -ENOTSUPP)
++				return rval;
++		}
++
++		pdata->wcn_port_setup = true;
++
++		break;
++	}
+ 	default:
+ 		break;
+ 	}
+@@ -379,6 +412,28 @@ static int sdm845_snd_startup(struct snd_pcm_substream *substream)
+ 		snd_soc_dai_set_fmt(cpu_dai, fmt);
+ 		break;
+ 
++	case TERTIARY_MI2S_RX:
++		codec_dai_fmt |= SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_I2S;
++		ret = snd_soc_dai_set_sysclk(cpu_dai,
++			Q6AFE_LPASS_CLK_ID_TER_MI2S_IBIT,
++			MI2S_BCLK_RATE, SNDRV_PCM_STREAM_PLAYBACK);
++		if (ret)
++			dev_err(card->dev,
++				"tert MI2S set_sysclk %u Hz failed: %d\n",
++				MI2S_BCLK_RATE, ret);
++		ret = snd_soc_dai_set_fmt(cpu_dai, fmt);
++		/* -ENOTSUPP: the DAI driver has no set_fmt op, i.e. there
++		 * is nothing to configure -- not a format failure. */
++		if (ret && ret != -ENOTSUPP)
++			dev_err(card->dev, "tert MI2S cpu set_fmt failed: %d\n",
++				ret);
++		ret = snd_soc_dai_set_fmt(codec_dai, codec_dai_fmt);
++		if (ret && ret != -ENOTSUPP)
++			dev_err(card->dev, "tert MI2S codec set_fmt failed: %d\n",
++				ret);
++		ret = 0;
++		break;
++
+ 	case QUATERNARY_TDM_RX_0:
+ 	case QUATERNARY_TDM_TX_0:
+ 		if (++(data->quat_tdm_clk_count) == 1) {
+@@ -464,6 +519,7 @@ static void  sdm845_snd_shutdown(struct snd_pcm_substream *substream)
+ 		break;
+ 	case SLIMBUS_0_RX...SLIMBUS_6_TX:
+ 	case QUATERNARY_MI2S_RX:
++	case TERTIARY_MI2S_RX:
+ 		break;
+ 
+ 	default:
+-- 
+2.55.0
+

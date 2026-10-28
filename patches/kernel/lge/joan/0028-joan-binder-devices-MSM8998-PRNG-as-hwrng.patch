@@ -1,0 +1,73 @@
+From 40be819ee5b59600a67ac3c8c2737b157877dd03 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Fri, 23 Oct 2026 16:47:29 +0000
+Subject: [PATCH 28/53] joan: binder devices, MSM8998 PRNG as hwrng
+
+- joan_defconfig: ANDROID_BINDER_DEVICES=binder,hwbinder,vndbinder; with an
+  empty list binderfs comes up without devices and servicemanager exits.
+  Enable HW_RANDOM.
+- arm64: dts: qcom: msm8998: add the TrustZone-configured PRNG (0x793000).
+- crypto: qcom-rng: register the EE PRNG as a hwrng too, like downstream
+  msm_rng, for Android's prng_seeder.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ arch/arm64/boot/dts/qcom/msm8998.dtsi | 7 +++++++
+ arch/arm64/configs/joan_defconfig     | 1 -
+ drivers/crypto/qcom-rng.c             | 7 ++++++-
+ 3 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/msm8998.dtsi b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+index 9c5d60803618..53d1f9e76d58 100644
+--- a/arch/arm64/boot/dts/qcom/msm8998.dtsi
++++ b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+@@ -2042,6 +2042,13 @@ cpr_quot_offset1_perfcl: qoff1-perfcl@239 {
+ 			};
+ 		};
+ 
++		rng: rng@793000 {
++			compatible = "qcom,prng-ee";
++			reg = <0x00793000 0x1000>;
++			clocks = <&gcc GCC_PRNG_AHB_CLK>;
++			clock-names = "core";
++		};
++
+ 		tsens0: thermal@10ab000 {
+ 			compatible = "qcom,msm8998-tsens", "qcom,tsens-v2";
+ 			reg = <0x010ab000 0x1000>, /* TM */
+diff --git a/arch/arm64/configs/joan_defconfig b/arch/arm64/configs/joan_defconfig
+index 56c48555dd37..84b4883563c6 100644
+--- a/arch/arm64/configs/joan_defconfig
++++ b/arch/arm64/configs/joan_defconfig
+@@ -1246,7 +1246,6 @@ CONFIG_ARM_CORESIGHT_PMU_ARCH_SYSTEM_PMU=m
+ CONFIG_NVIDIA_CORESIGHT_PMU_ARCH_SYSTEM_PMU=m
+ CONFIG_ANDROID_BINDER_IPC=y
+ CONFIG_ANDROID_BINDERFS=y
+-CONFIG_ANDROID_BINDER_DEVICES=""
+ CONFIG_ANDROID_VENDOR_HOOKS=y
+ CONFIG_NVMEM_LAYOUT_SL28_VPD=m
+ CONFIG_NVMEM_QCOM_QFPROM=y
+diff --git a/drivers/crypto/qcom-rng.c b/drivers/crypto/qcom-rng.c
+index 0685ba122e8a..11954638da2c 100644
+--- a/drivers/crypto/qcom-rng.c
++++ b/drivers/crypto/qcom-rng.c
+@@ -236,9 +236,14 @@ static struct qcom_rng_match_data qcom_prng_match_data = {
+ 	.hwrng_support = false,
+ };
+ 
++/*
++ * The EE-owned PRNG (configured by TrustZone, e.g. MSM8998) is also what the
++ * downstream msm_rng driver exposed as /dev/hw_random; Android's prng_seeder
++ * needs a hwrng, so register one here as well.
++ */
+ static struct qcom_rng_match_data qcom_prng_ee_match_data = {
+ 	.skip_init = true,
+-	.hwrng_support = false,
++	.hwrng_support = true,
+ };
+ 
+ static struct qcom_rng_match_data qcom_trng_match_data = {
+-- 
+2.55.0
+
