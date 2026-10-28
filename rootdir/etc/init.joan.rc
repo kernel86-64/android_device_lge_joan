@@ -19,14 +19,23 @@ on early-init
     write /sys/block/zram0/comp_algorithm lz4
 
 on init
+    # Kernel HCI firmware setup/close can exceed Android's default budgets.
+    # Set both native and outer BLE deadlines before framework startup.
+    setprop bluetooth.gd.start_timeout 30000
+    setprop bluetooth.gd.stop_timeout 30000
+    setprop ro.bluetooth.ble_start_timeout_delay 40000
+    setprop ro.bluetooth.ble_stop_timeout_delay 40000
     # Faster boot: large readahead and expedited RCU until boot_completed
     write /sys/block/sda/queue/read_ahead_kb 2048
     write /sys/kernel/rcu_expedited 1
-    # Drivers that load firmware at probe are modules (see joan_defconfig):
-    # remote processors first, then what talks to them.
+    # Drivers that load firmware at probe are modules (see joan_defconfig).
+    # The modem (qcom_q6v5_mss) and the ADSP (qcom_q6v5_pas) are NOT loaded
+    # here: started at ~5-13 s, before rmtfs/tqftpserv are running, both stall
+    # in their own init and their watchdogs reset them in a loop for minutes
+    # (see rootdir/bin/joan_rprocs.sh). joan_rprocs loads them, and the QMI
+    # clients that need them (ath10k, SLIMbus NGD), after boot_completed.
     exec u:r:vendor_modprobe:s0 -- /vendor/bin/modprobe -a -d /vendor/lib/modules \
-        qcom_q6v5_mss qcom_q6v5_pas venus_core venus_dec venus_enc ipa \
-        hci_uart ath10k_snoc slim-qcom-ngd-ctrl
+        venus_core venus_dec venus_enc ipa hci_uart
     write /dev/cpuset/foreground/cpus 0-7
     write /dev/cpuset/background/cpus 0-3
     write /dev/cpuset/system-background/cpus 0-3
@@ -48,21 +57,32 @@ on post-fs-data
     mkdir /data/vendor/tmp 0770 system system
     mkdir /data/vendor/tmp/tqftpserv 0770 system system
     mkdir /data/vendor/time 0770 system system
+    # Start only after /data is mounted; capture existing log buffers as well.
+    start joan_bootlog
 
 on early-boot
     # GPU fences for drm_hwcomposer / Mesa.
     mount debugfs debugfs /sys/kernel/debug
     chmod 0755 /sys/kernel/debug
+    # The dynamic_debug control file exists only after mounting debugfs.
+    start joan_dyndbg
+    # The power HAL waits for this signal before starting its hint worker.
+    # CPU and GPU frequency nodes exist by this point in the boot sequence.
+    setprop vendor.powerhal.init 1
     chown graphics graphics /sys/kernel/debug/sync/sw_sync
     chmod 0777 /sys/kernel/debug/sync/sw_sync
 
 on boot
     # Backlight for the lights HAL.
-    chown system system /sys/class/backlight/panel@0/brightness
-    chmod 0664 /sys/class/backlight/panel@0/brightness
+    chown system system /sys/class/backlight/c994000.dsi.0/brightness
+    chmod 0664 /sys/class/backlight/c994000.dsi.0/brightness
     # Start the modem: rmtfs serves its EFS from modemst1/modemst2/fsg.
+    # rmtfs -s is deliberately not used: it would start the modem here, long
+    # before it can be served; joan_rprocs starts it after boot_completed.
     start rmtfs
     start tqftpserv
+    # Modem, ADSP and their QMI clients, once userspace is up.
+    start joan_rprocs
     # Bluetooth: give the address-less WCN3990 a public BD address.
     start joan_btaddr
 
@@ -95,8 +115,11 @@ on property:sys.boot_completed=1
     write /sys/block/sda/queue/add_random 0
     write /sys/block/sde/queue/add_random 0
 
+on charger
+    setprop vendor.powerhal.init 1
+
 # Remote filesystem service for the modem (EFS on modemst1/modemst2/fsg).
-service rmtfs /vendor/bin/rmtfs -o /dev/block/by-name -P -r -s
+service rmtfs /vendor/bin/rmtfs -o /dev/block/by-name -P -r
     class core
     user root
     group system
@@ -126,7 +149,25 @@ service wpa_supplicant /vendor/bin/hw/wpa_supplicant \
     disabled
     oneshot
 
+# Refresh a HAL that may have been requested before the late netdev appeared.
+on property:vendor.joan.wlan.ready=1
+    restart vendor.wifi_hal_legacy
+
+# Late, traced bring-up of the modem, the ADSP and their QMI clients.
+service joan_rprocs /system/bin/sh /vendor/bin/joan_rprocs.sh
+    seclabel u:r:su:s0
+    user root
+    group root system net_admin net_raw
+    disabled
+    oneshot
+
 # Bring-up debugging: mirror userspace logs to the kernel console.
+service joan_dyndbg /system/bin/sh /vendor/bin/joan_dyndbg.sh
+    seclabel u:r:su:s0
+    user root
+    disabled
+    oneshot
+
 service logcat_kmsg /system/bin/logcat -b main -b system -b crash -v brief -f /dev/kmsg *:I
     seclabel u:r:su:s0
     user root
@@ -136,16 +177,22 @@ service logcat_kmsg /system/bin/logcat -b main -b system -b crash -v brief -f /d
 on property:init.svc.logd=running && property:ro.boot.joan.logcat_kmsg=1
     start logcat_kmsg
 
-# Bring-up debugging: keep this boot's kernel log and logcat on /cache so a
-# boot that never reaches adb can be read from recovery afterwards.
-service joan_bootlog /system/bin/sh -c "mkdir -p /cache/joan; timeout 180 dmesg -w > /cache/joan/dmesg.txt 2>&1 & timeout 180 logcat -b all -v threadtime > /cache/joan/logcat.txt 2>&1"
+# Bring-up debugging: keep the kernel log and logcat on /data so a boot that
+# wedges can be read afterwards. There is no /cache partition on joan, so the
+# old /cache copy never wrote anything. Each boot gets its own directory named
+# after boot_id, so a reset does not overwrite the log of the boot that wedged.
+# pstore (ramoops) is copied out before anything else can clear it. Wait for
+# /data, then run for an hour so a freeze minutes in is still captured.
+#
+# A hard reset loses whatever ext4 had not written back yet, which used to be
+# the interesting last few seconds, so sync every minute. The directory is made
+# world-readable immediately (not after an hour) so `adb shell` can read it
+# without root, including from recovery.
+service joan_bootlog /system/bin/sh /vendor/bin/joan_bootlog.sh
     seclabel u:r:su:s0
     user root
     disabled
     oneshot
-
-on property:init.svc.logd=running && property:ro.boot.joan.bootlog=1
-    start joan_bootlog
 
 # The PM8998 RTC is read-only; keep a wall-clock offset (timekeep/).
 service joan_timekeep /vendor/bin/joan_timekeep

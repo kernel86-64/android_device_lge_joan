@@ -46,7 +46,8 @@ service vendor.netmgrd /vendor/bin/netmgrd
     class main
     user root
     group radio system inet net_admin wakelock oem_2901
-    capabilities NET_ADMIN NET_RAW
+    # libdsutils drops to radio and retains network and wakelock capabilities.
+    capabilities SETUID SETGID NET_ADMIN NET_RAW BLOCK_SUSPEND
 
 on property:persist.vendor.data.mode=disabled
     stop vendor.netmgrd

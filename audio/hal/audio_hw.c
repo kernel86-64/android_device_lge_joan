@@ -54,6 +54,7 @@ struct joan_audio_device {
     pthread_mutex_t lock; /* lock order: device, then stream */
     int card;
     struct audio_route *ar;
+    time_t route_retry_after;
     audio_mode_t mode;
     bool mic_mute;
     const char *out_path; /* route applied for the active output, or NULL */
@@ -111,10 +112,10 @@ static int find_card(void)
 {
     char line[256];
     FILE *f = fopen("/proc/asound/cards", "r");
-    int card = 0;
+    int card = -1;
 
     if (!f)
-        return 0;
+        return -1;
     while (fgets(line, sizeof(line), f)) {
         int n;
         char id[64];
@@ -126,6 +127,35 @@ static int find_card(void)
     }
     fclose(f);
     return card;
+}
+
+/* Called with the device lock held, or while constructing the device. */
+static int ensure_routes(struct joan_audio_device *adev)
+{
+    struct timespec now;
+    int card;
+
+    if (adev->ar)
+        return 0;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+        return -ENODEV;
+    if (now.tv_sec < adev->route_retry_after)
+        return -ENODEV;
+    adev->route_retry_after = now.tv_sec + 1;
+
+    /* The ADSP and its codec can appear after audioserver has booted. Do
+     * not bind a different card at index zero or make this a permanent
+     * failure. A later stream write/read will retry without blocking boot.
+     */
+    card = find_card();
+    if (card < 0)
+        return -ENODEV;
+    adev->ar = audio_route_init(card, MIXER_XML_PATH);
+    if (!adev->ar)
+        return -ENODEV;
+    adev->card = card;
+    ALOGI("audio routes ready on card %d", card);
+    return 0;
 }
 
 static const char *output_path(audio_devices_t devices, audio_mode_t mode)
@@ -217,7 +247,7 @@ static int start_output(struct joan_stream_out *out)
 {
     struct joan_audio_device *adev = out->dev;
 
-    if (!adev->ar)
+    if (ensure_routes(adev) != 0)
         return -ENODEV;
 
     set_out_route(adev, output_path(out->devices, adev->mode));
@@ -425,7 +455,7 @@ static int start_input(struct joan_stream_in *in)
 {
     struct joan_audio_device *adev = in->dev;
 
-    if (!adev->ar)
+    if (ensure_routes(adev) != 0)
         return -ENODEV;
 
     set_in_route(adev, input_path(in->devices, in->config.channels));
@@ -868,16 +898,15 @@ static int adev_open(const hw_module_t *module, const char *name, hw_device_t **
 
     pthread_mutex_init(&adev->lock, NULL);
     adev->mode = AUDIO_MODE_NORMAL;
-    adev->card = find_card();
+    adev->card = -1;
 
     /*
      * Without a sound card (ADSP or codec not up) keep running with no
      * routes: the streams then play into the void at real-time pace
      * instead of failing audioserver, which would block boot.
      */
-    adev->ar = audio_route_init(adev->card, MIXER_XML_PATH);
-    if (!adev->ar)
-        ALOGE("no mixer on card %d; audio output is disabled", adev->card);
+    if (ensure_routes(adev) != 0)
+        ALOGW("audio card not ready; streams will retry route initialization");
 
     *device = &adev->hw_device.common;
     return 0;

@@ -8,3 +8,13 @@ on init
     # (adb/sideload) needs it named.
     setprop sys.usb.controller a800000.usb
     setprop sys.usb.configfs 1
+
+# Bring-up recovery: start authenticated root ADB before the recovery UI or
+# userdata mount can block. The build host key is embedded as /adb_keys.
+# These settings only live in this recovery ramdisk and only on debug builds.
+on early-boot && property:ro.debuggable=1
+    setprop service.adb.root 1
+    setprop sys.usb.config adb
+    setprop debug.recovery.auto_sideload 1
+    setprop debug.recovery.auto_reboot 1
+    setprop debug.recovery.sideload_timeout 1800

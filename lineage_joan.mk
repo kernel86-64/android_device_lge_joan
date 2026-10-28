@@ -7,8 +7,17 @@
 $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
 
+# Bring-up: su must be set before common.mk is inherited, which is where it
+# is tested.
+WITH_SU := true
+
 # Inherit some common Lineage stuff.
 $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
+
+# Bring-up: common.mk sets this, which forces ro.debuggable=0 even on userdebug
+# and makes the build drop adb_keys and adb root. Clear it while the port is
+# being debugged.
+PRODUCT_NOT_DEBUGGABLE_IN_USERDEBUG :=
 
 # Inherit from joan device
 $(call inherit-product, device/lge/joan/device.mk)

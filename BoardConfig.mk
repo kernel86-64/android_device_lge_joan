@@ -7,6 +7,13 @@
 
 DEVICE_PATH := device/lge/joan
 
+# The generic ramdisk's /adb_keys is a symlink into /product, which recovery
+# does not mount. Replace it after assembling the recovery ramdisk so this
+# host can authenticate immediately, even with encrypted or wiped userdata.
+ifneq ($(wildcard $(DEVICE_PATH)/adb_keys),)
+BOARD_RECOVERY_IMAGE_PREPARE = rm -f $(TARGET_RECOVERY_ROOT_OUT)/adb_keys && cp $(DEVICE_PATH)/adb_keys $(TARGET_RECOVERY_ROOT_OUT)/adb_keys
+endif
+
 BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true
 
 # Architecture
@@ -38,9 +45,9 @@ BOARD_KERNEL_CMDLINE := \
     androidboot.selinux=permissive \
     firmware_class.path=/vendor/firmware \
     loop.max_part=7 \
-    cpuidle.governor=teo \
     log_buf_len=4M \
-    androidboot.joan.logcat_kmsg=1 \
+    loglevel=4 \
+    androidboot.joan.logcat_kmsg=0 \
     androidboot.joan.bootlog=1
 BOARD_KERNEL_IMAGE_NAME := Image.gz
 BOARD_KERNEL_APPEND_DTBS := qcom/msm8998-lg-joan.dtb
@@ -50,8 +57,8 @@ TARGET_KERNEL_VERSION := 6.18
 # Modules: everything the kernel build produces goes to /vendor/lib/modules;
 # init.joan.rc loads the firmware-dependent ones after /vendor is up.
 BOARD_VENDOR_KERNEL_MODULES_LOAD := \
-    qcom_q6v5_mss qcom_q6v5_pas venus-core venus-dec venus-enc ipa \
-    hci_uart ath10k_snoc slim-qcom-ngd-ctrl
+    venus-core venus-dec venus-enc ipa \
+    hci_uart
 
 TARGET_BOARD_PLATFORM := msm8998
 
@@ -111,7 +118,10 @@ DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE := $(DEVICE_PATH)/framework_compatibi
 WPA_SUPPLICANT_VERSION := VER_0_8_X
 BOARD_WPA_SUPPLICANT_DRIVER := NL80211
 BOARD_HOSTAPD_DRIVER := NL80211
-BOARD_WLAN_DEVICE := wlan0
+# Selects the qcwcn (Qualcomm legacy) backend of libwifi-hal, which the AIDL
+# android.hardware.wifi-service uses. Scans/association are handled by
+# wificond/wpa_supplicant; QCA vendor offloads require separate validation.
+BOARD_WLAN_DEVICE := qcwcn
 
 # Bluetooth (WCN3990 via hci_qca, Linux HCI user channel)
 BOARD_HAVE_BLUETOOTH := true

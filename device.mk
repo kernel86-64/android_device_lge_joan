@@ -31,6 +31,11 @@ PRODUCT_PACKAGES += WifiOverlay.joan
 # Bring-up debugging: trust the build host's adb key, adb on from boot
 ifneq ($(wildcard $(LOCAL_PATH)/adb_keys),)
 PRODUCT_ADB_KEYS := $(LOCAL_PATH)/adb_keys
+# adbd only reads /adb_keys and /data/misc/adb/adb_keys, but PRODUCT_ADB_KEYS
+# lands in /product/etc/security/adb_keys. Put it in the boot ramdisk too, so a
+# wiped /data (which drops the user keys) does not leave adb unauthorized with
+# no way to tap Allow in recovery.
+PRODUCT_COPY_FILES += $(LOCAL_PATH)/adb_keys:$(TARGET_COPY_OUT_RAMDISK)/adb_keys
 # adb only (no MTP) while bringing up: MTP's function is served from
 # system_server, and the gadget cannot start until every function is ready.
 PRODUCT_SYSTEM_DEFAULT_PROPERTIES += persist.sys.usb.config=adb
@@ -57,9 +62,13 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/etc/fstab.joan:$(TARGET_COPY_OUT_RAMDISK)/fstab.joan \
     $(LOCAL_PATH)/rootdir/etc/init.joan.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.joan.rc \
     $(LOCAL_PATH)/rootdir/etc/init.joan.usb.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.joan.usb.rc \
+    $(LOCAL_PATH)/rootdir/etc/init.joan.usb.configfs.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.joan.usb.configfs.rc \
     $(LOCAL_PATH)/rootdir/etc/init.joan.radio.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.joan.radio.rc \
     $(LOCAL_PATH)/rootdir/etc/ueventd.joan.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
-    $(LOCAL_PATH)/rootdir/etc/init.recovery.joan.rc:$(TARGET_COPY_OUT_RECOVERY)/root/init.recovery.joan.rc
+    $(LOCAL_PATH)/rootdir/etc/init.recovery.joan.rc:$(TARGET_COPY_OUT_RECOVERY)/root/init.recovery.joan.rc \
+    $(LOCAL_PATH)/rootdir/bin/joan_rprocs.sh:$(TARGET_COPY_OUT_VENDOR)/bin/joan_rprocs.sh \
+    $(LOCAL_PATH)/rootdir/bin/joan_bootlog.sh:$(TARGET_COPY_OUT_VENDOR)/bin/joan_bootlog.sh \
+    $(LOCAL_PATH)/rootdir/bin/joan_dyndbg.sh:$(TARGET_COPY_OUT_VENDOR)/bin/joan_dyndbg.sh
 
 # Releasetools (H932 zap shader selection)
 PRODUCT_COPY_FILES += \
@@ -108,10 +117,9 @@ PRODUCT_PACKAGES += \
     android.hardware.health-service.example \
     android.hardware.health-service.example_recovery
 
-# USB
-PRODUCT_PACKAGES += \
-    android.hardware.usb-service.example \
-    android.hardware.usb.gadget-service.example
+# USB port HAL. Gadget functions use UsbHandlerLegacy and our configfs rules;
+# the AIDL example gadget service is a stub that never applies functions.
+PRODUCT_PACKAGES += android.hardware.usb-service.example
 
 # Keymint / Gatekeeper (software for now; no QSEE on mainline)
 PRODUCT_PACKAGES += \
@@ -178,16 +186,17 @@ PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.bluetooth.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth.xml \
     frameworks/native/data/etc/android.hardware.bluetooth_le.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth_le.xml
 
-# Wi-Fi (ath10k). No vendor Wi-Fi HAL: libwifi-hal has no ath10k backend
-# (qcwcn speaks QCA vendor commands ath10k does not implement), and without
-# an IWifi service the framework drives wlan0 through wificond/nl80211.
+# Wi-Fi: AIDL IWifi for interface management, wificond for nl80211 scans,
+# and wpa_supplicant for authentication. QCA offloads remain optional with
+# ath10k; hardware/qcom/wlan supplies the defaults wrapper for the legacy HAL.
+PRODUCT_SOONG_NAMESPACES += hardware/qcom/wlan hardware/qcom/wlan/legacy
 PRODUCT_PACKAGES += \
+    android.hardware.wifi-service \
     hostapd \
     wpa_supplicant \
     libwpa_client
 PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.wifi.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.wifi.xml \
-    $(LOCAL_PATH)/wifi/wpa_supplicant.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/wpa_supplicant.conf \
     $(LOCAL_PATH)/wifi/wpa_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/wpa_supplicant_overlay.conf
 
 # Touch / USB host / misc features
