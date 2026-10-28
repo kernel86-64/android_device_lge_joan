@@ -6,7 +6,7 @@ Bluetooth and the rest use open drivers (Mesa freedreno, ath10k, btqca, ...)
 rather than the old Qualcomm/LG HALs.
 
 > **Status: early bring-up.** It boots to a usable Android 16 home screen, but
-> several core features (audio, mobile network, camera preview) do not work
+> several core features (mobile network, camera preview, Android audio) do not work
 > yet. Do not use it as a daily driver.
 
 Tested only on the **US998** (V30+, 128 GB). Other variants share the
@@ -26,12 +26,13 @@ hardware, but nobody has tried them.
 | Battery, charging | Works |
 | CPU and GPU frequency scaling | Works (CPU to 2.4576 GHz, GPU to 710 MHz) |
 | Recovery | LineageOS recovery; ADB sideload works |
+| Sound card | ADSP, SLIMbus and WCD934x come up; loudspeaker plays via ALSA (`tinyplay`) |
 
 ## What does not work yet
 
 | Area | State |
 |---|---|
-| Audio | No sound card: the ADSP never answers APPS QMI requests |
+| Audio in Android | No audio HAL wired to the new sound card yet |
 | Mobile network / calls | Modem crash-loops; RIL never registers |
 | Camera | All three cameras enumerate (libcamera, software ISP), preview fails |
 | Fingerprint | Not working |
@@ -64,7 +65,7 @@ m bacon
 
 The kernel is the Android Common Kernel `android17-6.18` (Linux 6.18.32),
 which the manifest checks out at commit `7626905e035e` into `kernel/lge/joan`,
-plus the 53 joan patches in `patches/kernel/lge/joan/`: ShapeShifter499's
+plus the 54 joan patches in `patches/kernel/lge/joan/`: ShapeShifter499's
 mainline V30 port, squashed per subsystem, and the backports and fixes this
 port needed. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-23.2-*-UNOFFICIAL-joan.zip`,
 together with `boot.img` and `recovery.img`.
