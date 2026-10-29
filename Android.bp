@@ -5,3 +5,13 @@
 
 soong_namespace {
 }
+
+filegroup {
+    name: "joan_qcom_bufferinfo",
+    srcs: ["graphics/BufferInfoQcom.cpp"],
+}
+
+filegroup {
+    name: "joan_drm_hwc_init",
+    srcs: ["graphics/hwc3-joan.rc"],
+}

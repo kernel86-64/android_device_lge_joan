@@ -1,0 +1,22 @@
+diff --git a/Android.bp b/Android.bp
+index 2562fc5..01f54ba 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -208,6 +208,17 @@ cc_binary {
+     init_rc: [":drm_hwcomposer_init_rc"],
+ }
+ 
++// LG V30 (joan): reads buffer info from Qualcomm gralloc handles
++cc_binary {
++    name: "android.hardware.composer.hwc3-service.drm_joan",
++    defaults: ["android.hardware.composer.hwc3-service.drm.defaults"],
++    srcs: ["//device/lge/joan:joan_qcom_bufferinfo"],
++    relative_install_path: "hw",
++    vendor: true,
++    vintf_fragments: [":drm_hwcomposer_vintf_manifest"],
++    init_rc: ["//device/lge/joan:joan_drm_hwc_init"],
++}
++
+ // Used by hwcomposer.drm_imagination
+ filegroup {
+     name: "drm_hwcomposer_platformimagination",
