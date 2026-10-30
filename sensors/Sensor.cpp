@@ -104,13 +104,18 @@ void HWSensorBase::batch(int32_t samplingPeriodNs) {
             std::clamp(samplingPeriodNs, mSensorInfo.minDelay * 1000, mSensorInfo.maxDelay * 1000);
     if (mSamplingPeriodNs != samplingPeriodNs) {
         unsigned int sampling_frequency = ns_to_frequency(samplingPeriodNs);
-        int i = 0;
         mSamplingPeriodNs = samplingPeriodNs;
-        std::vector<double>::iterator low =
-                std::lower_bound(mIioData.sampling_freq_avl.begin(),
-                                 mIioData.sampling_freq_avl.end(), sampling_frequency);
-        i = low - mIioData.sampling_freq_avl.begin();
-        set_sampling_frequency(mIioData.sysfspath, mIioData.sampling_freq_avl[i]);
+        const auto& avl = mIioData.sampling_freq_avl;
+        if (mIioData.sampling_freq_range) {
+            // A continuous range takes the requested rate itself.
+            set_sampling_frequency(mIioData.sysfspath,
+                                   std::clamp<double>(sampling_frequency, avl.front(), avl.back()));
+        } else if (!avl.empty()) {
+            // A list: the slowest rate at least as fast as requested.
+            auto low = std::lower_bound(avl.begin(), avl.end(), sampling_frequency);
+            if (low == avl.end()) --low;
+            set_sampling_frequency(mIioData.sysfspath, *low);
+        }
         // Wake up the 'run' thread to check if a new event should be generated now
         mSensorThread.notifyAll();
     }

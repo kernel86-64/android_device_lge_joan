@@ -158,7 +158,7 @@ int enable_sensor(const std::string& device_dir, const bool enable) {
 }
 
 static int get_sampling_frequency_available(const std::string& device_dir,
-                                            std::vector<double>* sfa) {
+                                            std::vector<double>* sfa, bool* range) {
     int ret = 0;
     char* rest;
     std::string line;
@@ -183,6 +183,7 @@ static int get_sampling_frequency_available(const std::string& device_dir,
                 pch = strtok_r(nullptr, " ,[]", &rest);
             }
             if (isRange && vals.size() == 3) {
+                *range = true;
                 sfa->push_back(vals[0]);
                 sfa->push_back(vals[2]);
             } else {
@@ -299,7 +300,8 @@ int load_iio_devices(std::string iio_dir, std::vector<iio_device_data>* iio_data
 
         ALOGI("found sensor %s at path %s", iio_dev_data.name.c_str(), path_device.c_str());
         err = get_sampling_frequency_available(iio_dev_data.sysfspath,
-                                               &iio_dev_data.sampling_freq_avl);
+                                               &iio_dev_data.sampling_freq_avl,
+                                               &iio_dev_data.sampling_freq_range);
         if (err) {
             ALOGE("get_sampling_frequency_available for %s returned error %d", path_device.c_str(),
                   err);

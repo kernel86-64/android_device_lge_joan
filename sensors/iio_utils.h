@@ -62,6 +62,8 @@ struct iio_device_data {
     SensorType type;
     std::vector<iio_info_channel> channelInfo;
     std::vector<double> sampling_freq_avl;
+    // sampling_freq_avl holds {min, max} of a continuous IIO range
+    bool sampling_freq_range = false;
     uint8_t iio_dev_num;
     int64_t max_range;
 };
