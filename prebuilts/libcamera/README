@@ -1,4 +1,4 @@
-Upstream libcamera (v0.7.2-204-gdcc6bf18, branch joan-android in ~/android/ref/libcamera-upstream:
+Upstream libcamera (v0.7.2-205-gc17bf462, branch joan-android in ~/android/ref/libcamera-upstream:
 bionic and Android HAL fixes for joan) cross-built with NDK r30:
   pipelines=simple ipas=softisp android=enabled android_platform=generic
   prefix=/vendor libdir=lib64 libexecdir=bin sysconfdir=etc datadir=etc
