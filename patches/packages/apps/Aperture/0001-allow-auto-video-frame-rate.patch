@@ -1,0 +1,21 @@
+diff --git a/app/src/main/java/org/lineageos/aperture/CameraActivity.kt b/app/src/main/java/org/lineageos/aperture/CameraActivity.kt
+index edae6e0..cf42cc3 100644
+--- a/app/src/main/java/org/lineageos/aperture/CameraActivity.kt
++++ b/app/src/main/java/org/lineageos/aperture/CameraActivity.kt
+@@ -1545,10 +1545,13 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
+                     cameraConfiguration.videoQuality
+                 ] ?: error("Video quality not supported by the camera")
+ 
++                // No frame rate (auto) is what cameras without a fixed
++                // 24/30/60/120 fps range get, so it is always allowed.
+                 require(
+-                    videoQualityInfo.supportedFrameRates.contains(
+-                        cameraConfiguration.videoFrameRate
+-                    )
++                    cameraConfiguration.videoFrameRate == null ||
++                            videoQualityInfo.supportedFrameRates.contains(
++                                cameraConfiguration.videoFrameRate
++                            )
+                 ) {
+                     "Video frame rate not supported with the requested video quality"
+                 }
