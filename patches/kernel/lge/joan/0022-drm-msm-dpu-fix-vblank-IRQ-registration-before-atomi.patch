@@ -1,7 +1,7 @@
 From 37991fbec4ed9f90a9f1c29dc855ff0962be6062 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?C=C3=A9dric=20Bellegarde?= <cedric.bellegarde@adishatz.org>
 Date: Wed, 18 Mar 2026 18:17:00 +0100
-Subject: [PATCH 22/53] drm/msm/dpu: fix vblank IRQ registration before
+Subject: [PATCH 22/78] drm/msm/dpu: fix vblank IRQ registration before
  atomic_mode_set
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -52,6 +52,3 @@ index 68620c0b6247..765963f2014d 100644
  	/* protect against negative */
  	if (!enable && refcount == 0) {
  		ret = -EINVAL;
--- 
-2.55.0
-

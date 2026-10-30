@@ -1,7 +1,7 @@
 From 7a913eaae30a25f1eb5a741de0c5c0babfe97343 Mon Sep 17 00:00:00 2001
 From: Srinivas Kandagatla <srinivas.kandagatla@oss.qualcomm.com>
 Date: Fri, 22 Aug 2025 11:00:43 +0100
-Subject: [PATCH 36/53] rpmsg: glink: remove duplicate code for rpmsg device
+Subject: [PATCH 36/78] rpmsg: glink: remove duplicate code for rpmsg device
  remove
 
 rpmsg device remove code is duplicated in at-least 2-3 places, add a
@@ -108,6 +108,3 @@ index 3a15d9d10808..5ea096acc858 100644
  
  	kref_put(&channel->refcount, qcom_glink_channel_release);
  }
--- 
-2.55.0
-

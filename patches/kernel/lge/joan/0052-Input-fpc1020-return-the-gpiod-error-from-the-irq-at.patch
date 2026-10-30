@@ -1,7 +1,7 @@
 From 308d5521a55f687aca0be6b57762373f9c6df79a Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Wed, 28 Oct 2026 22:04:26 +0400
-Subject: [PATCH 52/53] Input: fpc1020: return the gpiod error from the irq
+Subject: [PATCH 52/78] Input: fpc1020: return the gpiod error from the irq
  attribute
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -23,6 +23,3 @@ index e1cd7d4983ac..c82526b0aee1 100644
  
  	return sysfs_emit(buf, "%d\n", level);
  }
--- 
-2.55.0
-

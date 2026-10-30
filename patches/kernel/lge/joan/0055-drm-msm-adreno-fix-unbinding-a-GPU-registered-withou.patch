@@ -1,7 +1,7 @@
 From da45f2c96e483bae510affeb2da3cd848973d8be Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 07:01:53 +0400
-Subject: [PATCH] drm/msm/adreno: fix unbinding a GPU registered without
+Subject: [PATCH 55/78] drm/msm/adreno: fix unbinding a GPU registered without
  components
 
 With msm.separate_gpu_kms=1 the GPU is its own DRM device and stores
@@ -69,6 +69,3 @@ index 94b32973cd6a..6514800bde7b 100644
  	struct drm_device *ddev = priv->dev;
  
  	/*
--- 
-2.55.0
-

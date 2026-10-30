@@ -1,7 +1,7 @@
 From 47189aec9e779ae5eb6f478f8812ce70aa0f29b5 Mon Sep 17 00:00:00 2001
 From: Dmitry Baryshkov <dmitry.baryshkov@oss.qualcomm.com>
 Date: Thu, 3 Sep 2026 15:19:10 +0300
-Subject: [PATCH 18/53] drm/msm/dsi: round the byte clock rate after
+Subject: [PATCH 18/78] drm/msm/dsi: round the byte clock rate after
  reparenting to the PHY PLL
 
 DSI 6G v2.9 hosts (SM8650, SM8750, Kaanapali, etc.) reparent the byte and
@@ -119,6 +119,3 @@ index 98a5a3aaa491..ba01b7eb116e 100644
  
  	msm_dsi_sfpb_config(msm_host, true);
  
--- 
-2.55.0
-

@@ -1,7 +1,7 @@
 From 5790373d9534c83ed4b8c41fa964ead5f7f1ada4 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:57:02 +0000
-Subject: [PATCH 08/53] joan: input (squashed from joan/master)
+Subject: [PATCH 08/78] joan: input (squashed from joan/master)
 
 ---
  drivers/iio/proximity/Kconfig       |   2 +
@@ -1628,6 +1628,3 @@ index 119cd26851cf..2df159f300e1 100644
  MODULE_DESCRIPTION("STMicroelectronics FTS Touch Screen");
 -MODULE_LICENSE("GPL v2");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

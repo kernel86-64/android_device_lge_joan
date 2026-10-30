@@ -1,7 +1,7 @@
 From 343d9ab74992abb4b31ec2460dcfc89b6442fcb3 Mon Sep 17 00:00:00 2001
 From: Jonathan Marek <jonathan@marek.ca>
 Date: Wed, 18 Mar 2026 09:54:08 +0000
-Subject: [PATCH 14/53] drm/msm/dsi: support DSC configurations with
+Subject: [PATCH 14/78] drm/msm/dsi: support DSC configurations with
  slice_per_pkt > 1
 
 Some panels support multiple slice to be sent in a single DSC packet and
@@ -85,6 +85,3 @@ index b5a0b282b033..03364cf9cbc7 100644
  
  	ret = dsi_dev_attach(msm_host->pdev);
  	if (ret)
--- 
-2.55.0
-

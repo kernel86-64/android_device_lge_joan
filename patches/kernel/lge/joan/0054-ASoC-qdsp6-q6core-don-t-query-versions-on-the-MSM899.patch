@@ -1,7 +1,8 @@
-From e750bec5b0dd96250fa8a7e055eeac9598afac7a Mon Sep 17 00:00:00 2001
+From 06b614c0355ee6fd1d38246989d64a711f126292 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
-Date: Thu, 29 Oct 2026 03:04:39 +0400
-Subject: [PATCH] ASoC: qdsp6: q6core: don't query versions on the MSM8998 ADSP
+Date: Thu, 29 Oct 2026 03:04:55 +0400
+Subject: [PATCH 54/78] ASoC: qdsp6: q6core: don't query versions on the
+ MSM8998 ADSP
 
 AVCS_CMD_GET_FWK_VERSION wedges the MSM8998 ADSP firmware: it stops
 consuming its glink FIFO at that message, with no crash and no watchdog
@@ -40,6 +41,3 @@ index 49cfb32cd209..fa81b19bd324 100644
  	if (!g_core->is_version_requested) {
  		if (q6core_get_fwk_versions(g_core) == -ENOTSUPP)
  			q6core_get_svc_versions(g_core);
--- 
-2.55.0
-

@@ -1,7 +1,7 @@
 From 6a22f9d8b374c715067584178dd633895420d01b Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 23 Oct 2026 21:30:57 +0000
-Subject: [PATCH 32/53] arm64: configs: joan_defconfig: AF_KEY and remaining
+Subject: [PATCH 32/78] arm64: configs: joan_defconfig: AF_KEY and remaining
  GKI net options
 
 netd's synchronizeKernelRCU() needs PF_KEY; without it system_server
@@ -64,6 +64,3 @@ index f6ee035d65f8..49191a5eb79a 100644
  CONFIG_HSR=m
  CONFIG_QRTR=y
  CONFIG_QRTR_SMD=y
--- 
-2.55.0
-

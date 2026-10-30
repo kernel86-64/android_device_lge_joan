@@ -1,7 +1,7 @@
 From 7618e02e24a57fe80c62005329c223654a639115 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sat, 24 Oct 2026 10:53:44 +0000
-Subject: [PATCH 44/53] arm64: configs: joan_defconfig: TEO idle governor, 20
+Subject: [PATCH 44/78] arm64: configs: joan_defconfig: TEO idle governor, 20
  uclamp buckets, no autogroup
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -43,6 +43,3 @@ index eb7302b246a1..8944f5b21ecf 100644
  CONFIG_ARM_PSCI_CPUIDLE=y
  CONFIG_CPU_FREQ=y
  CONFIG_CPU_FREQ_STAT=y
--- 
-2.55.0
-

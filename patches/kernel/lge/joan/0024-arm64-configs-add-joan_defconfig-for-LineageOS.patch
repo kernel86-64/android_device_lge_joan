@@ -1,7 +1,7 @@
 From fd1c3f242c51cf173627fc10b5778302e8eff4a8 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 19:48:21 +0000
-Subject: [PATCH 24/53] arm64: configs: add joan_defconfig for LineageOS
+Subject: [PATCH 24/78] arm64: configs: add joan_defconfig for LineageOS
 
 The LG V30 mainline config (lg-v30-port master-47041183b) limited to
 ARCH_QCOM, with the Android userspace requirements added and the
@@ -1476,6 +1476,3 @@ index 000000000000..c29300929cdf
 +CONFIG_CORESIGHT_CPU_DEBUG=m
 +CONFIG_CORESIGHT_CTI=m
 +CONFIG_MEMTEST=y
--- 
-2.55.0
-

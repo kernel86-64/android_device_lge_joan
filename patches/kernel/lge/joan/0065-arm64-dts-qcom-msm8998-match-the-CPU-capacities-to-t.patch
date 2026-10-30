@@ -1,0 +1,94 @@
+From 9e21b3915bea7c10e50ca488ff9cfb8d2d4c9816 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Thu, 29 Oct 2026 07:32:19 +0400
+Subject: [PATCH 65/78] arm64: dts: qcom: msm8998: match the CPU capacities to
+ the vendor energy model
+
+The scheduler derived a little-core capacity of 528 from dmips 1024/1536,
+while the vendor kernel's energy model (and the A53/A73 IPC gap) puts a
+1.9 GHz Kryo 280 silver core at 419 of a 2.46 GHz gold core's 1024.
+Overrating the little cores kept heavy single-threaded work on them too
+long. Use 542/1024, which yields 419.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ arch/arm64/boot/dts/qcom/msm8998.dtsi | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/msm8998.dtsi b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+index 906e7f3fae76..304ecc4df840 100644
+--- a/arch/arm64/boot/dts/qcom/msm8998.dtsi
++++ b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+@@ -1009,7 +1009,7 @@ cpu0: cpu@0 {
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
+ 			#cooling-cells = <2>;
+-			capacity-dmips-mhz = <1024>;
++			capacity-dmips-mhz = <542>;
+ 			cpu-idle-states = <&little_cpu_sleep_0>;
+ 			next-level-cache = <&l2_0>;
+ 			l2_0: l2-cache {
+@@ -1029,7 +1029,7 @@ cpu1: cpu@1 {
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
+ 			#cooling-cells = <2>;
+-			capacity-dmips-mhz = <1024>;
++			capacity-dmips-mhz = <542>;
+ 			cpu-idle-states = <&little_cpu_sleep_0>;
+ 			next-level-cache = <&l2_0>;
+ 		};
+@@ -1044,7 +1044,7 @@ cpu2: cpu@2 {
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
+ 			#cooling-cells = <2>;
+-			capacity-dmips-mhz = <1024>;
++			capacity-dmips-mhz = <542>;
+ 			cpu-idle-states = <&little_cpu_sleep_0>;
+ 			next-level-cache = <&l2_0>;
+ 		};
+@@ -1059,7 +1059,7 @@ cpu3: cpu@3 {
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
+ 			#cooling-cells = <2>;
+-			capacity-dmips-mhz = <1024>;
++			capacity-dmips-mhz = <542>;
+ 			cpu-idle-states = <&little_cpu_sleep_0>;
+ 			next-level-cache = <&l2_0>;
+ 		};
+@@ -1074,7 +1074,7 @@ cpu4: cpu@100 {
+ 			qcom,freq-domain = <&cpufreq_hw 1>;
+ 			operating-points-v2 = <&cpu4_opp_table>;
+ 			#cooling-cells = <2>;
+-			capacity-dmips-mhz = <1536>;
++			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&big_cpu_sleep_0>;
+ 			next-level-cache = <&l2_1>;
+ 			l2_1: l2-cache {
+@@ -1094,7 +1094,7 @@ cpu5: cpu@101 {
+ 			qcom,freq-domain = <&cpufreq_hw 1>;
+ 			operating-points-v2 = <&cpu4_opp_table>;
+ 			#cooling-cells = <2>;
+-			capacity-dmips-mhz = <1536>;
++			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&big_cpu_sleep_0>;
+ 			next-level-cache = <&l2_1>;
+ 		};
+@@ -1109,7 +1109,7 @@ cpu6: cpu@102 {
+ 			qcom,freq-domain = <&cpufreq_hw 1>;
+ 			operating-points-v2 = <&cpu4_opp_table>;
+ 			#cooling-cells = <2>;
+-			capacity-dmips-mhz = <1536>;
++			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&big_cpu_sleep_0>;
+ 			next-level-cache = <&l2_1>;
+ 		};
+@@ -1124,7 +1124,7 @@ cpu7: cpu@103 {
+ 			qcom,freq-domain = <&cpufreq_hw 1>;
+ 			operating-points-v2 = <&cpu4_opp_table>;
+ 			#cooling-cells = <2>;
+-			capacity-dmips-mhz = <1536>;
++			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&big_cpu_sleep_0>;
+ 			next-level-cache = <&l2_1>;
+ 		};

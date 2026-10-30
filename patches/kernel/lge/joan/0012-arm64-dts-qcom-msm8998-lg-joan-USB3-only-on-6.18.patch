@@ -1,7 +1,7 @@
 From 992c965ba41e17359a3c3d168eab62ca4d0e62ee Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 17:29:24 +0000
-Subject: [PATCH 12/53] arm64: dts: qcom: msm8998-lg-joan: USB3 only on 6.18
+Subject: [PATCH 12/78] arm64: dts: qcom: msm8998-lg-joan: USB3 only on 6.18
 
 6.18's phy-qcom-qmp-usbc has no MSM8998 USB3+DP combo support, so drive
 the QMP PHY as the plain USB3 PHY (no phy cell, no DP resets/TCSR) and
@@ -102,6 +102,3 @@ index df8b91a4d926..352e786da399 100644
  &wifi {
  	vdd-0.8-cx-mx-supply = <&vreg_l5a_0p8>;
  	vdd-1.8-xo-supply = <&vreg_l7a_1p8>;
--- 
-2.55.0
-

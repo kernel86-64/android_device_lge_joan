@@ -1,7 +1,7 @@
 From 618ae254a401531cb8db88b63ad28bc29d8a91b0 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 23 Oct 2026 02:53:04 +0000
-Subject: [PATCH 26/53] arm64: configs: joan_defconfig: enable SELinux in the
+Subject: [PATCH 26/78] arm64: configs: joan_defconfig: enable SELinux in the
  LSM list
 
 CONFIG_LSM came from the postmarketOS config and left SELinux out, so it
@@ -27,6 +27,3 @@ index a94b9eaf4e54..d9f2fc4d58aa 100644
  CONFIG_CRYPTO_USER=y
  CONFIG_CRYPTO_BENCHMARK=m
  CONFIG_CRYPTO_DH=m
--- 
-2.55.0
-

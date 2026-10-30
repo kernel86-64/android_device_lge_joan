@@ -1,7 +1,7 @@
 From 279a980a085f692abf125e4d405b6ea88c422954 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 22:16:25 +0000
-Subject: [PATCH 25/53] arm64: configs: joan_defconfig: build the joan drivers
+Subject: [PATCH 25/78] arm64: configs: joan_defconfig: build the joan drivers
  in, firmware loaders as modules
 
 All joan drivers are built in except those that request firmware at
@@ -650,6 +650,3 @@ index c29300929cdf..a94b9eaf4e54 100644
  CONFIG_PRINTK_TIME=y
  CONFIG_DEBUG_KERNEL=y
  CONFIG_DEBUG_INFO_DWARF5=y
--- 
-2.55.0
-

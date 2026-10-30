@@ -1,7 +1,7 @@
 From 05c7e36c0794e05049c487e6d431fc647e706978 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 23 Oct 2026 22:10:42 +0000
-Subject: [PATCH 33/53] arm64: configs: joan_defconfig: PM8998 RTC, coincell
+Subject: [PATCH 33/78] arm64: configs: joan_defconfig: PM8998 RTC, coincell
  and NFC built in
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -47,6 +47,3 @@ index 49191a5eb79a..dbd9a27335f3 100644
  CONFIG_RTC_DRV_IMX_BBM_SCMI=y
  CONFIG_RTC_DRV_MT6397=m
  CONFIG_DMADEVICES=y
--- 
-2.55.0
-

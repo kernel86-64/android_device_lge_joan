@@ -1,7 +1,7 @@
 From b026e262e7a68e7c398a2bd6eebebdab471c759d Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:56:55 +0000
-Subject: [PATCH 03/53] joan: drm (squashed from joan/master)
+Subject: [PATCH 03/78] joan: drm (squashed from joan/master)
 
 ---
  drivers/gpu/drm/msm/Makefile                  |   1 +
@@ -2319,6 +2319,3 @@ index 000000000000..1cc6780d3ae6
 +
 +MODULE_DESCRIPTION("LG SW43402 DSC command-mode DSI panel driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

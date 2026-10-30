@@ -1,0 +1,28 @@
+From 7d176705ce160c700941f9139f916f29fdd3e7ae Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Thu, 29 Oct 2026 09:27:36 +0400
+Subject: [PATCH 67/78] iio: qcom-smgr: timestamp buffered samples
+
+qcom_smgr_iio_data.timestamp was never written, so every sample pushed
+to the buffer carried stale stack contents in the timestamp channel
+(Android saw 0). Stamp each report with iio_get_time_ns(), which follows
+the device's current_timestamp_clock.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ drivers/iio/common/qcom_smgr/qcom_smgr.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/iio/common/qcom_smgr/qcom_smgr.c b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+index 7314ec107357..b34a095d8478 100644
+--- a/drivers/iio/common/qcom_smgr/qcom_smgr.c
++++ b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+@@ -292,6 +292,7 @@ static void qcom_smgr_buffering_report_handler(struct qmi_handle *hdl,
+ 	 */
+ 	for (j = 0; j < ARRAY_SIZE(ind->samples[0].values); ++j)
+ 		iio_data.values[j] = ind->samples[0].values[j];
++	iio_data.timestamp = iio_get_time_ns(sensor->iio_dev);
+ 
+ 	/*
+ 	 * SMGR reports sensor data in 32-bit fixed-point values, with 16 bits

@@ -1,7 +1,7 @@
 From 4982963e5dc47bd152c11dfe57fafc59618a5487 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sat, 24 Oct 2026 23:19:33 +0000
-Subject: [PATCH 49/53] rpmsg: glink: name the channel when an intent request
+Subject: [PATCH 49/78] rpmsg: glink: name the channel when an intent request
  times out
 
 "intent request timed out" only names the glink-edge device, which on
@@ -977,6 +977,3 @@ index 2854de7e6b93..1d5648fae3c6 100644
  		ret = -ETIMEDOUT;
  	} else if (glink->abort_tx) {
  		ret = -ECANCELED;
--- 
-2.55.0
-

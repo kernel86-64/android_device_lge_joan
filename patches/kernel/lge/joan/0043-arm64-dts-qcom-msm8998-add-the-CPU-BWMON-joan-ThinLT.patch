@@ -1,7 +1,7 @@
 From 0e099169c98161cc7ee3c5d357d1031752f5e409 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sat, 24 Oct 2026 10:24:45 +0000
-Subject: [PATCH 43/53] arm64: dts: qcom: msm8998: add the CPU BWMON; joan:
+Subject: [PATCH 43/78] arm64: dts: qcom: msm8998: add the CPU BWMON; joan:
  ThinLTO, bwmon, no NUMA
 
 The CPU had no DDR bandwidth vote of its own, so once interconnect
@@ -134,6 +134,3 @@ index ea1042d38128..1137d58188c0 100644
  
  		qp->regmap = devm_regmap_init_mmio(dev, mmio, desc->regmap_cfg);
  		if (IS_ERR(qp->regmap)) {
--- 
-2.55.0
-

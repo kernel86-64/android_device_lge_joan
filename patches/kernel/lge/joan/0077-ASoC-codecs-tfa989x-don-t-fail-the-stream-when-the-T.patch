@@ -1,0 +1,48 @@
+From 815ec101d33e799e30e49b598127778345f933d2 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Fri, 30 Oct 2026 04:56:08 +0400
+Subject: [PATCH 77/78] ASoC: codecs: tfa989x: don't fail the stream when the
+ TFA9872 is slow to start
+
+The TFA9872 manager keeps bringing the amplifier up after MANSCONF, so a
+start that takes longer than the poll only loses the first milliseconds
+of sound. Returning -ETIMEDOUT from the trigger aborted the PCM stream
+instead. Poll longer and continue with a warning.
+---
+ sound/soc/codecs/tfa989x.c | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/sound/soc/codecs/tfa989x.c b/sound/soc/codecs/tfa989x.c
+index c8606f4b387b..fd1d7da35ba4 100644
+--- a/sound/soc/codecs/tfa989x.c
++++ b/sound/soc/codecs/tfa989x.c
+@@ -88,7 +88,7 @@
+ #define TFA9872_TDM_CONFIG1_SLLN_MSK	GENMASK(8, 4)	/* bits per slot, minus one */
+ 
+ /* The manager needs a few tries to leave "wait for I2C settings" state. */
+-#define TFA9872_START_RETRIES		20
++#define TFA9872_START_RETRIES		50
+ 
+ /*
+  * TDMSPKG, the amplifier's own level control.  NXP's header calls it "total
+@@ -353,10 +353,17 @@ static int tfa989x_trigger(struct snd_pcm_substream *substream, int cmd,
+ 	case SNDRV_PCM_TRIGGER_START:
+ 	case SNDRV_PCM_TRIGGER_RESUME:
+ 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
++		/*
++		 * The manager keeps bringing the amplifier up on its own, so a
++		 * slow start only costs the first few milliseconds of sound.
++		 * Failing the trigger would abort the whole PCM stream.
++		 */
+ 		ret = tfa9872_amp_start(tfa989x);
+-		if (ret)
+-			dev_err(component->dev,
+-				"amplifier failed to start: %d\n", ret);
++		if (ret == -ETIMEDOUT) {
++			dev_warn(component->dev,
++				 "amplifier slow to start, continuing\n");
++			return 0;
++		}
+ 		return ret;
+ 	case SNDRV_PCM_TRIGGER_STOP:
+ 	case SNDRV_PCM_TRIGGER_SUSPEND:

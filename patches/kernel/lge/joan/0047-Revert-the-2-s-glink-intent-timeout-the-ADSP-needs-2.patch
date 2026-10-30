@@ -1,7 +1,7 @@
 From 6690d890c280fbd220578bbfdebb9309defa44d8 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sat, 24 Oct 2026 21:06:06 +0000
-Subject: [PATCH 47/53] Revert the 2 s glink intent timeout: the ADSP needs ~20
+Subject: [PATCH 47/78] Revert the 2 s glink intent timeout: the ADSP needs ~20
  s to come up
 
 v19 waited 10 s for an intent and its first ADSP QMI completed at 26.9 s,
@@ -48,6 +48,3 @@ index 4bc4dadd87c2..2854de7e6b93 100644
  	if (!ret) {
  		dev_err(glink->dev, "intent request timed out\n");
  		ret = -ETIMEDOUT;
--- 
-2.55.0
-

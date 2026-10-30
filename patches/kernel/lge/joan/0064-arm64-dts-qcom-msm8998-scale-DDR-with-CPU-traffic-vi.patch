@@ -1,0 +1,113 @@
+From 00a3fb76548d032da740ff0300766927a5a1feb2 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Thu, 29 Oct 2026 07:29:46 +0400
+Subject: [PATCH 64/78] arm64: dts: qcom: msm8998: scale DDR with CPU traffic
+ via the BWMON
+
+msm8998 has no CPU-to-DDR bandwidth vote: the apps path only carried
+a 40 MB/s peak from an unrelated config-space user, so the EBI clock
+followed the display and GPU votes alone (412 MHz was typical) and
+memory-bound CPU work ran far below the vendor kernel. Geekbench 6
+multi-core reached 800-900 against roughly 1400 on stock.
+
+Describe the CPU bandwidth monitor (BWMON v4 with separate global
+registers, as icc-bwmon's msm8998 data expects) with the vendor
+kernel's cpubw steps, and build the driver in.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ arch/arm64/boot/dts/qcom/msm8998.dtsi | 66 +++++++++++++++++++++++++++
+ arch/arm64/configs/joan_defconfig     |  2 +-
+ 2 files changed, 67 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/msm8998.dtsi b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+index 22e24b81db96..906e7f3fae76 100644
+--- a/arch/arm64/boot/dts/qcom/msm8998.dtsi
++++ b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+@@ -2916,6 +2916,72 @@ bimc: interconnect@1000000 {
+ 			#interconnect-cells = <1>;
+ 		};
+ 
++		/*
++		 * CPU to DDR bandwidth monitor. It raises the EBI vote with the
++		 * traffic the CPUs generate; without it DDR stays at whatever
++		 * the other masters vote, which starved memory-bound CPU work.
++		 * The steps are the vendor kernel's cpubw table (100-1804 MHz).
++		 */
++		pmu@1008000 {
++			compatible = "qcom,msm8998-bwmon";
++			reg = <0x01008000 0x300>, <0x01001000 0x200>;
++			interrupts = <GIC_SPI 183 IRQ_TYPE_LEVEL_HIGH>;
++			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
++			operating-points-v2 = <&cpu_bwmon_opp_table>;
++
++			cpu_bwmon_opp_table: opp-table {
++				compatible = "operating-points-v2";
++
++				opp-0 {
++					opp-peak-kBps = <762000>;
++				};
++
++				opp-1 {
++					opp-peak-kBps = <1144000>;
++				};
++
++				opp-2 {
++					opp-peak-kBps = <1525000>;
++				};
++
++				opp-3 {
++					opp-peak-kBps = <2288000>;
++				};
++
++				opp-4 {
++					opp-peak-kBps = <3143000>;
++				};
++
++				opp-5 {
++					opp-peak-kBps = <4173000>;
++				};
++
++				opp-6 {
++					opp-peak-kBps = <5195000>;
++				};
++
++				opp-7 {
++					opp-peak-kBps = <5859000>;
++				};
++
++				opp-8 {
++					opp-peak-kBps = <7759000>;
++				};
++
++				opp-9 {
++					opp-peak-kBps = <9887000>;
++				};
++
++				opp-10 {
++					opp-peak-kBps = <11863000>;
++				};
++
++				opp-11 {
++					opp-peak-kBps = <13763000>;
++				};
++			};
++		};
++
+ 		cnoc: interconnect@1500000 {
+ 			compatible = "qcom,msm8998-cnoc";
+ 			reg = <0x01500000 0x10000>;
+diff --git a/arch/arm64/configs/joan_defconfig b/arch/arm64/configs/joan_defconfig
+index 536d7796a7f2..1f952f29ab6f 100644
+--- a/arch/arm64/configs/joan_defconfig
++++ b/arch/arm64/configs/joan_defconfig
+@@ -1300,7 +1300,7 @@ CONFIG_QCOM_SPM=y
+ CONFIG_QCOM_STATS=y
+ CONFIG_QCOM_WCNSS_CTRL=m
+ CONFIG_QCOM_APR=y
+-CONFIG_QCOM_ICC_BWMON=m
++CONFIG_QCOM_ICC_BWMON=y
+ CONFIG_QCOM_PBS=y
+ CONFIG_SOC_TI=y
+ CONFIG_QCOM_CPR=y

@@ -1,7 +1,7 @@
 From c6582881abb4df2c1eb00bb0209add548d671826 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:57:00 +0000
-Subject: [PATCH 06/53] joan: power (squashed from joan/master)
+Subject: [PATCH 06/78] joan: power (squashed from joan/master)
 
 ---
  .../qualcomm/phy-qcom-qmp-dp-phy-v3-8998.h    |  41 +
@@ -2032,6 +2032,3 @@ index 2ca83a46cf3b..2bad0bc777c7 100644
 +				       struct regmap *regmap, u32 base);
 +
  #endif /* __QCOM_PMIC_TYPE_C_PORT_H__ */
--- 
-2.55.0
-

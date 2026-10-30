@@ -1,0 +1,50 @@
+From bf4ba6157e90d63cf56ec9519bf284f91e023c9d Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Thu, 29 Oct 2026 20:27:07 +0400
+Subject: [PATCH 73/78] soc: qcom: qmi: keep the full QMI version in the QRTR
+ instance
+
+QRTR_INSTANCE() masks the QMI version to eight bits. The in-kernel PD
+mapper publishes the service locator with version 0x101, so it was
+announced as instance 0x01 instead of 0x101. Remote processors look the
+locator up by its real instance, never found it, and the MSM8998 modem
+then never started its WLAN protection domain: ath10k waited forever
+for WLFW. Go back to the unmasked encoding.
+
+Fixes: d20ae4146a2e ("net: qrtr: Define macro to convert QMI version and instance to QRTR instance")
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ drivers/soc/qcom/qmi_interface.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/soc/qcom/qmi_interface.c b/drivers/soc/qcom/qmi_interface.c
+index bd97b006757f..6500f863aae5 100644
+--- a/drivers/soc/qcom/qmi_interface.c
++++ b/drivers/soc/qcom/qmi_interface.c
+@@ -14,7 +14,6 @@
+ #include <linux/workqueue.h>
+ #include <trace/events/sock.h>
+ #include <linux/soc/qcom/qmi.h>
+-#include <linux/soc/qcom/qrtr.h>
+ 
+ static struct socket *qmi_sock_create(struct qmi_handle *qmi,
+ 				      struct sockaddr_qrtr *sq);
+@@ -174,7 +173,7 @@ static void qmi_send_new_lookup(struct qmi_handle *qmi, struct qmi_service *svc)
+ 	memset(&pkt, 0, sizeof(pkt));
+ 	pkt.cmd = cpu_to_le32(QRTR_TYPE_NEW_LOOKUP);
+ 	pkt.server.service = cpu_to_le32(svc->service);
+-	pkt.server.instance = cpu_to_le32(QRTR_INSTANCE(svc->version, svc->instance));
++	pkt.server.instance = cpu_to_le32(svc->version | svc->instance << 8);
+ 
+ 	sq.sq_family = qmi->sq.sq_family;
+ 	sq.sq_node = qmi->sq.sq_node;
+@@ -237,7 +236,7 @@ static void qmi_send_new_server(struct qmi_handle *qmi, struct qmi_service *svc)
+ 	memset(&pkt, 0, sizeof(pkt));
+ 	pkt.cmd = cpu_to_le32(QRTR_TYPE_NEW_SERVER);
+ 	pkt.server.service = cpu_to_le32(svc->service);
+-	pkt.server.instance = cpu_to_le32(QRTR_INSTANCE(svc->version, svc->instance));
++	pkt.server.instance = cpu_to_le32(svc->version | svc->instance << 8);
+ 	pkt.server.node = cpu_to_le32(qmi->sq.sq_node);
+ 	pkt.server.port = cpu_to_le32(qmi->sq.sq_port);
+ 

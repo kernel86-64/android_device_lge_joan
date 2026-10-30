@@ -1,0 +1,45 @@
+From ccf76dbfddf06cbde7bf4f83e2347c7d38926628 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Thu, 29 Oct 2026 09:59:02 +0400
+Subject: [PATCH 71/78] arm64: dts: qcom: msm8998: stop the CPU BWMON at 1555
+ MHz DDR
+
+With the CPU BWMON driving the EBI vote on its own, reaching the vendor
+table's top 1804 MHz step under sustained memory traffic reset the SoC
+(PMIC POFF reason PS_HOLD, nothing logged), reproducibly within two
+copy loops. Capped at 1555 MHz, six loops ran clean at the same
+2.4 GB/s. Drop the top step.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ arch/arm64/boot/dts/qcom/msm8998.dtsi | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/msm8998.dtsi b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+index 71e3fa5392c3..69fa01adb79d 100644
+--- a/arch/arm64/boot/dts/qcom/msm8998.dtsi
++++ b/arch/arm64/boot/dts/qcom/msm8998.dtsi
+@@ -2920,8 +2920,10 @@ bimc: interconnect@1000000 {
+ 		 * CPU to DDR bandwidth monitor. It raises the EBI vote with the
+ 		 * traffic the CPUs generate; without it DDR stays at whatever
+ 		 * the other masters vote, which starved memory-bound CPU work.
+-		 * The steps are the vendor kernel's cpubw table from its 200 MHz floor
+-		 * up to 1804 MHz.
++		 * The steps are the vendor kernel's cpubw table from its 200 MHz floor.
++		 * Its top 1804 MHz step is left out: voted from here alone it reset
++		 * the SoC (PS_HOLD) under sustained memory traffic, and 1555 MHz
++		 * already gives the same CPU copy throughput (2.4 GB/s).
+ 		 */
+ 		pmu@1008000 {
+ 			compatible = "qcom,msm8998-bwmon";
+@@ -2973,9 +2975,6 @@ opp-10 {
+ 					opp-peak-kBps = <11863000>;
+ 				};
+ 
+-				opp-11 {
+-					opp-peak-kBps = <13763000>;
+-				};
+ 			};
+ 		};
+ 

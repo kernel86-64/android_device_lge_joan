@@ -1,7 +1,7 @@
 From 58e163825be4033e2e81753dd352c0d1c089c99a Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 23 Oct 2026 18:14:00 +0000
-Subject: [PATCH 29/53] arm64: configs: joan_defconfig: Android core options
+Subject: [PATCH 29/78] arm64: configs: joan_defconfig: Android core options
  from GKI
 
 userfaultfd/anon VMA names (ART's CMC GC; without them zygote rejects the
@@ -253,6 +253,3 @@ index 84b4883563c6..f451058cb620 100644
  CONFIG_CRYPTO_LZ4=y
  CONFIG_CRYPTO_ZSTD=y
  CONFIG_CRYPTO_USER_API_SKCIPHER=y
--- 
-2.55.0
-

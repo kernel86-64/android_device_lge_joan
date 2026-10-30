@@ -1,7 +1,7 @@
 From be3dc36c446e44e00787dd940c32f6bb1c01cf1e Mon Sep 17 00:00:00 2001
 From: Konrad Dybcio <konrad.dybcio@oss.qualcomm.com>
 Date: Tue, 28 Jul 2026 15:20:47 +0200
-Subject: [PATCH 17/53] drm/msm/dsi: Drop dev_pm_opp_set_rate(0)
+Subject: [PATCH 17/78] drm/msm/dsi: Drop dev_pm_opp_set_rate(0)
 
 dev_pm_opp_set_rate(0) removes the vote specified in required-opps but
 does not actually park the clock, making it run without the necessary
@@ -34,6 +34,3 @@ index 3024108e2f1b..98a5a3aaa491 100644
  	clk_disable_unprepare(msm_host->esc_clk);
  	clk_disable_unprepare(msm_host->pixel_clk);
  	clk_disable_unprepare(msm_host->byte_intf_clk);
--- 
-2.55.0
-

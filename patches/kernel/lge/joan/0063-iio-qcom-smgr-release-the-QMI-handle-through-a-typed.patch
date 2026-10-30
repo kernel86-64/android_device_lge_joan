@@ -1,0 +1,59 @@
+From c3f95d66237d62b563f63a2abea3273692b93384 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Thu, 29 Oct 2026 07:09:43 +0400
+Subject: [PATCH 63/78] iio: qcom-smgr: release the QMI handle through a typed
+ callback; enable on joan
+
+devm_add_action_or_reset() took qmi_handle_release() cast to
+void (*)(void *), which breaks kCFI and draws -Wcast-function-type-strict.
+Wrap it in a function of the right type.
+
+Enable the driver in joan_defconfig: the SLPI on the LG V30 serves the
+accelerometer, gyroscope, magnetometer, proximity, light and pressure
+sensors through SMGR.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0144VMKxYe33NKa3LLPZNivr
+---
+ arch/arm64/configs/joan_defconfig        | 1 +
+ drivers/iio/common/qcom_smgr/qcom_smgr.c | 8 ++++++--
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/configs/joan_defconfig b/arch/arm64/configs/joan_defconfig
+index 859147e3d0f3..536d7796a7f2 100644
+--- a/arch/arm64/configs/joan_defconfig
++++ b/arch/arm64/configs/joan_defconfig
+@@ -1315,6 +1315,7 @@ CONFIG_EXTCON_USB_GPIO=y
+ CONFIG_EXTCON_USBC_CROS_EC=y
+ CONFIG_MEMORY=y
+ CONFIG_IIO=y
++CONFIG_IIO_QCOM_SMGR=y
+ CONFIG_MAX9611=m
+ CONFIG_MEDIATEK_MT6359_AUXADC=m
+ CONFIG_QCOM_SPMI_RRADC=y
+diff --git a/drivers/iio/common/qcom_smgr/qcom_smgr.c b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+index b94c0548ce9e..7314ec107357 100644
+--- a/drivers/iio/common/qcom_smgr/qcom_smgr.c
++++ b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+@@ -778,6 +778,11 @@ static int qcom_smgr_register_sensor(struct qcom_smgr *smgr,
+ 	return 0;
+ }
+ 
++static void qcom_smgr_release_qmi(void *data)
++{
++	qmi_handle_release(data);
++}
++
+ static int qcom_smgr_probe(struct qrtr_device *qdev)
+ {
+ 	struct qcom_smgr *smgr;
+@@ -803,8 +808,7 @@ static int qcom_smgr_probe(struct qrtr_device *qdev)
+ 		return dev_err_probe(smgr->dev, ret,
+ 			"Failed to initialize sensor manager handle\n");
+ 
+-	ret = devm_add_action_or_reset(smgr->dev,
+-				       (void(*)(void *))qmi_handle_release,
++	ret = devm_add_action_or_reset(smgr->dev, qcom_smgr_release_qmi,
+ 				       &smgr->sns_smgr_hdl);
+ 	if (ret)
+ 		return ret;

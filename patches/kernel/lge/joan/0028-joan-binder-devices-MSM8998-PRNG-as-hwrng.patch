@@ -1,7 +1,7 @@
 From 40be819ee5b59600a67ac3c8c2737b157877dd03 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 23 Oct 2026 16:47:29 +0000
-Subject: [PATCH 28/53] joan: binder devices, MSM8998 PRNG as hwrng
+Subject: [PATCH 28/78] joan: binder devices, MSM8998 PRNG as hwrng
 
 - joan_defconfig: ANDROID_BINDER_DEVICES=binder,hwbinder,vndbinder; with an
   empty list binderfs comes up without devices and servicemanager exits.
@@ -68,6 +68,3 @@ index 0685ba122e8a..11954638da2c 100644
  };
  
  static struct qcom_rng_match_data qcom_trng_match_data = {
--- 
-2.55.0
-

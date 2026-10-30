@@ -1,7 +1,7 @@
 From 71f53199b870a681cbf8d0a59dfe83290591f41e Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 17:29:24 +0000
-Subject: [PATCH 11/53] joan: fix the carried drivers up for 6.18
+Subject: [PATCH 11/78] joan: fix the carried drivers up for 6.18
 
 - interconnect/msm8998: include mod_devicetable.h for of_device_id.
 - venus: num_pd_names is const in 6.18's dev_pm_domain_attach_data;
@@ -124,6 +124,3 @@ index 9c278577ffd3..6cf7f86e3af6 100644
  
  #define MSM_AFE_PORT_TYPE_RX 0
  #define MSM_AFE_PORT_TYPE_TX 1
--- 
-2.55.0
-

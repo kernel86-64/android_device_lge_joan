@@ -1,7 +1,7 @@
 From 35947e619c2ae17d324e7bd19680e5e94a8305e9 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 23 Oct 2026 18:40:13 +0000
-Subject: [PATCH 30/53] arm64: configs: joan_defconfig: build the GPIO SBU mux
+Subject: [PATCH 30/78] arm64: configs: joan_defconfig: build the GPIO SBU mux
  in
 
 The PMI8998 Type-C connector depends on the SBU mux; with it modular the
@@ -27,6 +27,3 @@ index f451058cb620..fadbc0d5fd82 100644
  CONFIG_TYPEC_MUX_IT5205=m
  CONFIG_TYPEC_MUX_NB7VPQ904M=m
  CONFIG_TYPEC_MUX_PS883X=m
--- 
-2.55.0
-

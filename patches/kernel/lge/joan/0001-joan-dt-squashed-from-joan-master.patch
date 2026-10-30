@@ -1,7 +1,7 @@
 From 135251922650a888785f4f880510eb315e1122b7 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:56:50 +0000
-Subject: [PATCH 01/53] joan: dt (squashed from joan/master)
+Subject: [PATCH 01/78] joan: dt (squashed from joan/master)
 
 ---
  .../devicetree/bindings/arm/qcom.yaml         |    1 +
@@ -8539,6 +8539,3 @@ index 6d1ce7f5da51..9d336f7fcd6c 100644
  #define PRIMARY_MI2S_RX		16
  #define PRIMARY_MI2S_TX		17
  #define SECONDARY_MI2S_RX	18
--- 
-2.55.0
-

@@ -1,7 +1,7 @@
 From df364daa2601e355c67ef1ad8af59f0cab820f7b Mon Sep 17 00:00:00 2001
 From: Saim Shujah <saimzst@gmail.com>
 Date: Fri, 28 Aug 2026 11:54:40 +0500
-Subject: [PATCH 23/53] drm/msm/dpu: clear pending peripheral flush state
+Subject: [PATCH 23/78] drm/msm/dpu: clear pending peripheral flush state
 
 dpu_hw_ctl_clear_pending_flush() resets the cached per-block state after a
 flush transaction, but misses pending_periph_flush_mask.
@@ -37,6 +37,3 @@ index ac834db2e4c1..68ed99d8aec6 100644
  	ctx->pending_merge_3d_flush_mask = 0;
  	ctx->pending_dsc_flush_mask = 0;
  	ctx->pending_cdm_flush_mask = 0;
--- 
-2.55.0
-

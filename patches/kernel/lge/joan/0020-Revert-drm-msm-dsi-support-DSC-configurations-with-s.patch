@@ -1,7 +1,7 @@
 From 716c6c484cb1ef322bf3d0a37433f72057efb6d3 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 19:31:55 +0000
-Subject: [PATCH 20/53] Revert "drm/msm/dsi: support DSC configurations with
+Subject: [PATCH 20/78] Revert "drm/msm/dsi: support DSC configurations with
  slice_per_pkt > 1"
 
 This reverts commit 343d9ab74992abb4b31ec2460dcfc89b6442fcb3.
@@ -70,6 +70,3 @@ index ba01b7eb116e..ce1fc513f3ce 100644
  
  	ret = dsi_dev_attach(msm_host->pdev);
  	if (ret)
--- 
-2.55.0
-
