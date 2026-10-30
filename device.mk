@@ -88,6 +88,7 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/etc/init.recovery.joan.rc:$(TARGET_COPY_OUT_RECOVERY)/root/init.recovery.joan.rc \
     $(LOCAL_PATH)/rootdir/bin/joan_rprocs.sh:$(TARGET_COPY_OUT_VENDOR)/bin/joan_rprocs.sh \
     $(LOCAL_PATH)/rootdir/bin/joan_bootlog.sh:$(TARGET_COPY_OUT_VENDOR)/bin/joan_bootlog.sh \
+    $(LOCAL_PATH)/rootdir/bin/joan_zram.sh:$(TARGET_COPY_OUT_VENDOR)/bin/joan_zram.sh \
     $(LOCAL_PATH)/rootdir/bin/joan_dyndbg.sh:$(TARGET_COPY_OUT_VENDOR)/bin/joan_dyndbg.sh
 
 # Releasetools (H932 zap shader selection)

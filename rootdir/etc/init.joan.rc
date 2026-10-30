@@ -98,12 +98,14 @@ on property:sys.boot_completed=1
     write /dev/cpuset/background/cpus 0-1
     write /dev/cpuset/system-background/cpus 0-3
     swapon_all /vendor/etc/fstab.joan
+    start joan_zram
     # Performance: zram-friendly swap readahead, faster schedutil ramps,
     # small UFS readahead once boot is done, no block I/O accounting.
     write /proc/sys/vm/page-cluster 0
     write /proc/sys/vm/swappiness 100
     write /sys/devices/system/cpu/cpufreq/policy0/schedutil/rate_limit_us 500
-    write /sys/devices/system/cpu/cpufreq/policy4/schedutil/rate_limit_us 500
+    # The big cluster's switches also move its DDR floor: no faster than 2 ms.
+    write /sys/devices/system/cpu/cpufreq/policy4/schedutil/rate_limit_us 2000
     write /sys/block/sda/queue/read_ahead_kb 128
     write /sys/block/sdb/queue/read_ahead_kb 128
     write /sys/block/sdc/queue/read_ahead_kb 128
@@ -160,6 +162,13 @@ on property:vendor.joan.wlan.ready=1
     restart vendor.wifi_hal_legacy
 
 # Late, traced bring-up of the modem, the ADSP and their QMI clients.
+service joan_zram /system/bin/sh /vendor/bin/joan_zram.sh
+    seclabel u:r:su:s0
+    user root
+    group root
+    disabled
+    oneshot
+
 service joan_rprocs /system/bin/sh /vendor/bin/joan_rprocs.sh
     seclabel u:r:su:s0
     user root
