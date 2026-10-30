@@ -18,6 +18,26 @@ PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
 PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
 
+# Sensors: the SLPI serves them through the qcom-smgr IIO driver; the
+# joan IIO sub-HAL runs under the AIDL multihal. sns-reg answers the
+# SLPI's registry requests from LG's sensor_def files, without which the
+# SLPI never starts its Sensor Manager.
+PRODUCT_PACKAGES += \
+    android.hardware.sensors-service.multihal \
+    android.hardware.sensors@2.1-joan-iio-subhal \
+    sns-reg
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/configs/sensors/sensor_def_common.conf:$(TARGET_COPY_OUT_VENDOR)/etc/sensors/sensor_def_common.conf \
+    $(LOCAL_PATH)/configs/sensors/sensor_def_joan_global_com.conf:$(TARGET_COPY_OUT_VENDOR)/etc/sensors/sensor_def_variable.conf \
+    $(LOCAL_PATH)/sensors/config/hals.conf:$(TARGET_COPY_OUT_VENDOR)/etc/sensors/hals.conf \
+    $(LOCAL_PATH)/sensors/config/sensor_hal_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/sensors/sensor_hal_configuration.xml \
+    frameworks/native/data/etc/android.hardware.sensor.accelerometer.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.sensor.accelerometer.xml \
+    frameworks/native/data/etc/android.hardware.sensor.barometer.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.sensor.barometer.xml \
+    frameworks/native/data/etc/android.hardware.sensor.compass.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.sensor.compass.xml \
+    frameworks/native/data/etc/android.hardware.sensor.gyroscope.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.sensor.gyroscope.xml \
+    frameworks/native/data/etc/android.hardware.sensor.light.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.sensor.light.xml \
+    frameworks/native/data/etc/android.hardware.sensor.proximity.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.sensor.proximity.xml
+
 # Overlays (from the LineageOS 22.2 joan tree, minus what needs the
 # downstream vendor stack: light sensor, doze sensors, QTI telephony, the
 # vendor Wi-Fi HAL)
@@ -240,8 +260,12 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/prebuilts/libcamera/lib64/libcamera/ipa/ipa_softisp.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libcamera/ipa/ipa_softisp.so \
     $(LOCAL_PATH)/prebuilts/libcamera/lib64/libcamera/ipa/ipa_softisp.so.sign:$(TARGET_COPY_OUT_VENDOR)/lib64/libcamera/ipa/ipa_softisp.so.sign \
     $(LOCAL_PATH)/prebuilts/libcamera/bin/libcamera/softisp_ipa_proxy:$(TARGET_COPY_OUT_VENDOR)/bin/libcamera/softisp_ipa_proxy \
+    $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/ipa/softisp/hi553.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/ipa/softisp/hi553.yaml \
+    $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/ipa/softisp/imx351.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/ipa/softisp/imx351.yaml \
+    $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/ipa/softisp/s5k3m3.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/ipa/softisp/s5k3m3.yaml \
     $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/ipa/softisp/uncalibrated.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/ipa/softisp/uncalibrated.yaml \
     $(LOCAL_PATH)/camera/camera_hal.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/camera_hal.yaml \
+    $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/configuration.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/configuration.yaml \
     frameworks/native/data/etc/android.hardware.camera.front.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.front.xml
 PRODUCT_VENDOR_PROPERTIES += ro.hardware.camera=libcamera
 
@@ -293,3 +317,6 @@ PRODUCT_SOONG_NAMESPACES += \
     hardware/google/interfaces \
     hardware/google/pixel \
     hardware/lineage/interfaces/power-libperfmgr
+
+# Device Quick Settings: mainline Quad DAC and stepped torch control.
+PRODUCT_PACKAGES += JoanDeviceParts

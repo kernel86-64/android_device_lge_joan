@@ -1,0 +1,50 @@
+//
+// Copyright (C) 2020 The Android Open Source Project
+// Copyright (C) 2026 The LineageOS Project
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// IIO sensors sub-HAL for the LG V30 (joan), derived from AOSP's
+// device/google/trout/hal/sensors/2.1. The SLPI serves the sensors through
+// the qcom-smgr IIO driver; this sub-HAL is loaded by the AIDL multihal.
+//
+
+cc_library {
+    name: "android.hardware.sensors@2.1-joan-iio-subhal",
+    vendor: true,
+    srcs: [
+        "iio_utils.cpp",
+        "MultiPoll.cpp",
+        "Sensor.cpp",
+        "SensorsSubHal.cpp",
+        "SensorThread.cpp",
+    ],
+    header_libs: [
+        "android.hardware.sensors@2.1-multihal.header",
+    ],
+    shared_libs: [
+        "android.hardware.sensors@1.0",
+        "android.hardware.sensors@2.0",
+        "android.hardware.sensors@2.1",
+        "android.hardware.sensors@2.0-ScopedWakelock",
+        "libcutils",
+        "libfmq",
+        "libhardware",
+        "libhidlbase",
+        "liblog",
+        "libbase",
+        "libpower",
+        "libutils",
+    ],
+    static_libs: [
+        "android.hardware.sensors@2.X-multihal",
+        "libxml2",
+    ],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+    generated_sources: ["joan_sensor_hal_configuration_V1_0"],
+    generated_headers: ["joan_sensor_hal_configuration_V1_0"],
+}

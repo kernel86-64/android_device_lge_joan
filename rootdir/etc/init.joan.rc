@@ -81,6 +81,12 @@ on boot
     # before it can be served; joan_rprocs starts it after boot_completed.
     start rmtfs
     start tqftpserv
+    # The SLPI must be up before the framework reads the sensor list, and it
+    # asks for its registry while it boots: publish the registry, then load
+    # the PAS driver. The ADSP opts out of auto-boot (qcom,no-auto-boot in
+    # the DT); joan_rprocs starts it later.
+    start vendor.sns-reg
+    exec_background u:r:vendor_modprobe:s0 root root -- /vendor/bin/modprobe -d /vendor/lib/modules qcom_q6v5_pas
     # Modem, ADSP and their QMI clients, once userspace is up.
     start joan_rprocs
     # Bluetooth: give the address-less WCN3990 a public BD address.

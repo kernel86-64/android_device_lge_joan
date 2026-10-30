@@ -1,0 +1,26 @@
+//
+// SPDX-FileCopyrightText: 2023 Yassine Oudjana
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// Qualcomm Sensor Registry (SNS_REG) server, from
+// https://gitlab.com/msm8996-mainline/sns-reg (4d238e5). The SLPI on
+// msm8998 asks the AP for its sensor registry before it starts the Sensor
+// Manager; this replaces the proprietary sensors.qcom daemon.
+//
+
+cc_binary {
+    name: "sns-reg",
+    vendor: true,
+    srcs: [
+        "main.c",
+        "map.c",
+        "qmi/sns_reg.c",
+    ],
+    shared_libs: ["libqrtr"],
+    init_rc: ["sns-reg.rc"],
+    cflags: [
+        "-Wall",
+        "-Wno-unused-parameter",
+    ],
+}

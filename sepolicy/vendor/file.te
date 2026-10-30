@@ -2,3 +2,6 @@ type firmware_file, vendor_file_type, file_type;
 
 # qcrild databases and state
 type radio_vendor_data_file, file_type, data_file_type;
+
+# Only the rear flash controller; no access to other LED devices.
+type sysfs_joan_torch, fs_type, sysfs_type;

@@ -1,0 +1,2 @@
+# PMI8998 rear LED, addressed by the mainline SPMI platform bus.
+genfscon sysfs /devices/platform/soc@0/800f000.spmi/spmi-0/0-03/800f000.spmi:pmic@3:led-controller@d300/leds u:object_r:sysfs_joan_torch:s0

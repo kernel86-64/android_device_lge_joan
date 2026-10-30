@@ -115,6 +115,11 @@ start_wlan() {
 start_adsp_clients() {
 	load qcom_q6v5_pas || return 1
 	ADSP=$(rproc_find adsp) || return 1
+	# The ADSP does not auto-boot (the SLPI shares its driver and loads at
+	# boot); start it here, once the filesystem services are ready.
+	if [ "$(cat "$ADSP/state")" = offline ]; then
+		timeout -k 2 30 /system/bin/sh -c 'echo start > "$1/state"' sh "$ADSP" || return 1
+	fi
 	wait_running "$ADSP" 30 || return 1
 	start_wlan || echo "WLAN initialization failed; continuing with independent audio probe"
 	# A failed WLAN restart can leave ADSP offline. Do not send new SLIMbus

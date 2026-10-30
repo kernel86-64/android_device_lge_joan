@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+
+     LG V30 (joan). SMGR reports the motion sensors in north-east-down
+     after applying LG's per-chip axis maps; Android wants x right, y up,
+     z out of the screen, i.e. (y, x, -z). Sensors not listed here (the
+     single-value ones) need no configuration.
+-->
+<sensorHalConfiguration version="1.0">
+    <modules>
+        <module halName="android.hardware.sensors@2.1-joan-iio-subhal" halVersion="2.1">
+            <sensors>
+                <sensor name="qcom-smgr-accel" type="1">
+                    <configuration>
+                        <orientation rotate="true">
+                            <x map="1" negate="false"/>
+                            <y map="0" negate="false"/>
+                            <z map="2" negate="true"/>
+                        </orientation>
+                        <location>
+                            <x>0</x>
+                            <y>0</y>
+                            <z>0</z>
+                        </location>
+                    </configuration>
+                </sensor>
+                <sensor name="qcom-smgr-gyro" type="4">
+                    <configuration>
+                        <orientation rotate="true">
+                            <x map="1" negate="false"/>
+                            <y map="0" negate="false"/>
+                            <z map="2" negate="true"/>
+                        </orientation>
+                        <location>
+                            <x>0</x>
+                            <y>0</y>
+                            <z>0</z>
+                        </location>
+                    </configuration>
+                </sensor>
+                <sensor name="qcom-smgr-mag" type="2">
+                    <configuration>
+                        <orientation rotate="true">
+                            <x map="1" negate="false"/>
+                            <y map="0" negate="false"/>
+                            <z map="2" negate="true"/>
+                        </orientation>
+                        <location>
+                            <x>0</x>
+                            <y>0</y>
+                            <z>0</z>
+                        </location>
+                    </configuration>
+                </sensor>
+            </sensors>
+        </module>
+    </modules>
+</sensorHalConfiguration>

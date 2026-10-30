@@ -1,0 +1,6 @@
+# The SLPI asks for the registry while it boots, so publish it first.
+service vendor.sns-reg /vendor/bin/sns-reg
+    class core
+    user system
+    group system
+    stdio_to_kmsg
