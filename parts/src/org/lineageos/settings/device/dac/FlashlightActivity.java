@@ -11,13 +11,13 @@ import android.widget.Toast;
 public final class FlashlightActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        int current = Torch.level();
+        int current = Torch.level(this);
         CharSequence[] levels = new CharSequence[6];
         levels[0] = getString(R.string.off);
         for (int i = 1; i <= 5; i++) levels[i] = getString(R.string.level, i);
         new AlertDialog.Builder(this).setTitle(R.string.brightness)
                 .setSingleChoiceItems(levels, current, (dialog, which) -> {
-                    if (!Torch.set(which)) {
+                    if (!Torch.set(this, which)) {
                         Toast.makeText(this, R.string.hardware_error, Toast.LENGTH_SHORT).show();
                         return;
                     }

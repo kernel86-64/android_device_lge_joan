@@ -16,7 +16,7 @@ public final class FlashlightTileService extends TileService {
     private void refresh() {
         Tile tile = getQsTile();
         if (tile == null) return;
-        int level = Torch.level();
+        int level = Torch.level(this);
         tile.setState(level < 0 ? Tile.STATE_UNAVAILABLE
                 : level == 0 ? Tile.STATE_INACTIVE : Tile.STATE_ACTIVE);
         tile.setLabel(getString(R.string.flashlight));
@@ -25,10 +25,10 @@ public final class FlashlightTileService extends TileService {
         tile.updateTile();
     }
     @Override public void onClick() {
-        int level = Torch.level();
+        int level = Torch.level(this);
         if (level < 0) { refresh(); return; }
         int saved = new Controls(this).prefs.getInt("torch_level", 3);
-        if (!Torch.set(level > 0 ? 0 : saved))
+        if (!Torch.set(this, level > 0 ? 0 : saved))
             Toast.makeText(this, R.string.hardware_error, Toast.LENGTH_SHORT).show();
         refresh();
     }

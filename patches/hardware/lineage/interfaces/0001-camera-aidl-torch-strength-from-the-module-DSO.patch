@@ -1,0 +1,56 @@
+diff --git a/camera/aidl/device/CameraDevice.cpp b/camera/aidl/device/CameraDevice.cpp
+index e31d1a8..e6c60a8 100644
+--- a/camera/aidl/device/CameraDevice.cpp
++++ b/camera/aidl/device/CameraDevice.cpp
+@@ -7,6 +7,8 @@
+ #define LOG_TAG "CamDev-impl"
+ 
+ #include "CameraDevice.h"
++
++#include <dlfcn.h>
+ #include "convert.h"
+ 
+ #include <cutils/trace.h>
+@@ -351,12 +353,38 @@ ndk::ScopedAStatus CameraDevice::setTorchMode(bool on) {
+     return fromStatus(status);
+ }
+ 
+-ndk::ScopedAStatus CameraDevice::turnOnTorchWithStrengthLevel(int32_t) {
+-    return fromStatus(Status::OPERATION_NOT_SUPPORTED);
++/*
++ * camera_module_t has no torch strength entry; modules that support it
++ * export camera_module_{set,get}_torch_strength() from their DSO.
++ */
++ndk::ScopedAStatus CameraDevice::turnOnTorchWithStrengthLevel(int32_t torchStrength) {
++    using SetFn = int (*)(const char*, int);
++    auto set = reinterpret_cast<SetFn>(
++            dlsym(mModule->getDso(), "camera_module_set_torch_strength"));
++    if (!set) {
++        return fromStatus(Status::OPERATION_NOT_SUPPORTED);
++    }
++
++    Status status = initStatus();
++    if (status == Status::OK) {
++        status = getAidlStatus(set(mCameraId.c_str(), torchStrength));
++    }
++    return fromStatus(status);
+ }
+ 
+-ndk::ScopedAStatus CameraDevice::getTorchStrengthLevel(int32_t*) {
+-    return fromStatus(Status::OPERATION_NOT_SUPPORTED);
++ndk::ScopedAStatus CameraDevice::getTorchStrengthLevel(int32_t* _aidl_return) {
++    using GetFn = int (*)(const char*, int*);
++    auto get = reinterpret_cast<GetFn>(
++            dlsym(mModule->getDso(), "camera_module_get_torch_strength"));
++    if (!get) {
++        return fromStatus(Status::OPERATION_NOT_SUPPORTED);
++    }
++
++    Status status = initStatus();
++    if (status == Status::OK) {
++        status = getAidlStatus(get(mCameraId.c_str(), _aidl_return));
++    }
++    return fromStatus(status);
+ }
+ 
+ std::shared_ptr<CameraDeviceSession> CameraDevice::createSession(
