@@ -3,11 +3,8 @@ package org.lineageos.settings.device.dac;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.content.Intent;
-import android.service.quicksettings.TileService;
 import android.preference.ListPreference;
 import android.widget.Toast;
-import android.preference.Preference;
 import android.preference.PreferenceFragment;
 import android.preference.PreferenceScreen;
 import android.preference.SwitchPreference;
@@ -15,14 +12,6 @@ import android.preference.SwitchPreference;
 public final class QuadDACPanelActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        // EXTRA_COMPONENT_NAME is supplied by SystemUI for tile preferences.
-        android.content.ComponentName tile = getIntent().getParcelableExtra(
-                Intent.EXTRA_COMPONENT_NAME, android.content.ComponentName.class);
-        if (tile != null && tile.getClassName().equals(FlashlightTileService.class.getName())) {
-            startActivity(new Intent(this, FlashlightActivity.class));
-            finish();
-            return;
-        }
         if (state == null) getFragmentManager().beginTransaction()
                 .replace(android.R.id.content, new Panel()).commit();
     }
@@ -47,10 +36,6 @@ public final class QuadDACPanelActivity extends Activity {
             String[] volumes = new String[25];
             for (int i = 0; i <= 24; i++) volumes[i] = (i - 24) + " dB";
             addList(screen, "joan_dac_volume", R.string.analog_volume, volumes, 10);
-            Preference flashlight = new Preference(getActivity());
-            flashlight.setTitle(R.string.flashlight);
-            flashlight.setIntent(new Intent(getActivity(), FlashlightActivity.class));
-            screen.addPreference(flashlight);
         }
         private void addList(PreferenceScreen screen, String key, int title,
                 String[] entries, int fallback) {

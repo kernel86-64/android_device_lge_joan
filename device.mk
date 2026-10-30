@@ -270,7 +270,8 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/ipa/softisp/uncalibrated.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/ipa/softisp/uncalibrated.yaml \
     $(LOCAL_PATH)/camera/camera_hal.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/camera_hal.yaml \
     $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/configuration.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/configuration.yaml \
-    frameworks/native/data/etc/android.hardware.camera.front.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.front.xml
+    frameworks/native/data/etc/android.hardware.camera.front.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.front.xml \
+    $(LOCAL_PATH)/configs/permissions/android.hardware.camera.flash-joan.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.flash-joan.xml
 PRODUCT_VENDOR_PROPERTIES += ro.hardware.camera=libcamera
 
 # Power HAL: mainline DRM has no display idle_state node, so every touch

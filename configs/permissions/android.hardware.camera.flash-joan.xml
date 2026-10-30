@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rear camera with a flash LED (libcamera HAL). Not the stock
+     camera.flash-autofocus.xml: the HAL has no autofocus. -->
+<permissions>
+    <feature name="android.hardware.camera" />
+    <feature name="android.hardware.camera.flash" />
+</permissions>

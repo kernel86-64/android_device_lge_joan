@@ -17,6 +17,8 @@ firmware_directories /vendor/firmware/
 # Backlight
 /sys/class/backlight/*    brightness       0664   system   system
 /sys/class/leds/*         brightness       0664   system   system
+# The camera HAL (cameraserver, group camera) drives the flash LED.
+/sys/class/leds/white:flash brightness      0664   system   camera
 
 # Bluetooth HAL unblocks the controller through rfkill
 /dev/rfkill               0660   bluetooth  bluetooth

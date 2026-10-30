@@ -19,20 +19,26 @@ public final class BootReceiver extends BroadcastReceiver {
                 .setMinimumLatency(15000).setOverrideDeadline(60000)
                 .setBackoffCriteria(30000, JobInfo.BACKOFF_POLICY_EXPONENTIAL).build());
         Controls controls = new Controls(context);
-        // Upgrade existing Quick Settings without replacing the user's other tiles.
+        String current = Settings.Secure.getString(context.getContentResolver(), "sysui_qs_tiles");
+        if (current == null || current.isEmpty()) return;
+        ArrayList<String> tiles = new ArrayList<>(Arrays.asList(current.split(",")));
+        boolean changed = false;
+        // Add the Quad DAC tile once, without replacing the user's other tiles.
         if (!controls.prefs.getBoolean("tiles_added", false)) {
-            String current = Settings.Secure.getString(context.getContentResolver(), "sysui_qs_tiles");
-            if (current != null && !current.isEmpty()) {
-                ArrayList<String> tiles = new ArrayList<>(Arrays.asList(current.split(",")));
-                String torch = "custom(org.lineageos.settings.device.dac/.FlashlightTileService)";
-                String dac = "custom(org.lineageos.settings.device.dac/.QuadDACTileService)";
-                int at = tiles.indexOf("flashlight");
-                tiles.remove("flashlight");
-                if (!tiles.contains(torch)) tiles.add(at < 0 ? tiles.size() : at, torch);
-                if (!tiles.contains(dac)) tiles.add(dac);
-                if (!Settings.Secure.putString(context.getContentResolver(), "sysui_qs_tiles",
-                        String.join(",", tiles))) return;
-            }
+            String dac = "custom(org.lineageos.settings.device.dac/.QuadDACTileService)";
+            if (!tiles.contains(dac)) tiles.add(dac);
+            changed = true;
+        }
+        // The system flashlight tile has a strength slider now: put it back
+        // where an earlier version replaced it with this app's tile.
+        int at = tiles.indexOf("custom(org.lineageos.settings.device.dac/.FlashlightTileService)");
+        if (at >= 0) {
+            tiles.remove(at);
+            if (!tiles.contains("flashlight")) tiles.add(at, "flashlight");
+            changed = true;
+        }
+        if (changed && Settings.Secure.putString(context.getContentResolver(), "sysui_qs_tiles",
+                String.join(",", tiles))) {
             controls.prefs.edit().putBoolean("tiles_added", true).apply();
         }
     }
