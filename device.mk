@@ -273,6 +273,15 @@ PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.camera.front.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.front.xml
 PRODUCT_VENDOR_PROPERTIES += ro.hardware.camera=libcamera
 
+# Power HAL: mainline DRM has no display idle_state node, so every touch
+# held the INTERACTION boost (big >= 1344 MHz) for 1.4-5.65 s. Keep the
+# boost short instead; touches during a scroll renew it.
+PRODUCT_VENDOR_PROPERTIES += \
+    vendor.powerhal.disp.idle_support=false \
+    vendor.powerhal.interaction.min=500 \
+    vendor.powerhal.interaction.max=2500 \
+    vendor.powerhal.interaction.offset=200
+
 # Telephony: Qualcomm qcrild + netmgrd from the 22.2 vendor image (see
 # extract-radio.py); the AOSP pieces they link against are built here.
 PRODUCT_PACKAGES += \

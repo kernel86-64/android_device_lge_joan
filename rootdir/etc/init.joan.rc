@@ -73,6 +73,10 @@ on early-boot
     chmod 0777 /sys/kernel/debug/sync/sw_sync
 
 on boot
+    # RT tasks (threaded IRQs, audio, binder) must not pin their cluster
+    # at the top frequency: the kernel default (1024) kept the big cluster
+    # at 2457.6 MHz while its cores slept, and with it the DDR floor.
+    write /proc/sys/kernel/sched_util_clamp_min_rt_default 0
     # Backlight for the lights HAL.
     chown system system /sys/class/backlight/c994000.dsi.0/brightness
     chmod 0664 /sys/class/backlight/c994000.dsi.0/brightness
