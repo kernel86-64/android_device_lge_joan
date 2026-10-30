@@ -12,7 +12,7 @@
        MultiMedia1 -> SLIMBUS_0_RX -> WCD9340 EAR PA    -> earpiece
        WCD9340 AMICs -> SLIMBUS_0_TX -> MultiMedia2
 
-     The ES9218P Quad DAC is left in Low Power Bypass.  tfa989x bypasses
+     The ES9218P Quad DAC uses Low Power Bypass unless enabled in device settings.  tfa989x bypasses
      the CoolFlux DSP, so there is no speaker protection: the speaker gain
      stays where the UCM profile put it.
 -->
@@ -98,6 +98,15 @@
         <ctl name="RX INT2_2 MUX" value="RX1" />
         <ctl name="RX INT2_2 INTERP" value="RX INT2_2 MUX" />
         <ctl name="RX INT2 DEM MUX" value="CLSH_DSM_OUT" />
+    </path>
+
+    <!-- ES9218P: the kernel negotiates S24_LE and two 32-bit MI2S slots.
+         Mode must be set before DAPM powers up the DAC. -->
+    <path name="headphones-hifi">
+        <ctl name="Headphone Mode" value="HiFi" />
+        <ctl name="Headphone Playback Volume" value="255" />
+        <ctl name="Headphone Playback Switch" value="1" />
+        <ctl name="QUAT_MI2S_RX Audio Mixer MultiMedia1" value="1" />
     </path>
 
     <!-- bottom mic: AMIC1/ADC1 -> DEC6 -> SLIM TX6 -->

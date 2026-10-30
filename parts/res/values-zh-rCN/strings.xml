@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="quad_dac">Hi-Fi 四路 DAC</string>
+  <string name="quad_dac_off">四路 DAC 关</string>
+  <string name="quad_dac_on">四路 DAC 开</string>
+  <string name="quad_dac_unavail">四路 DAC 不可用</string>
+</resources>

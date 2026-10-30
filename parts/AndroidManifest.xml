@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.lineageos.settings.device.dac" android:sharedUserId="android.uid.system">
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <application android:label="@string/device_settings" android:icon="@drawable/ic_quad_dac_icon"
+        android:theme="@android:style/Theme.DeviceDefault.Settings"
+        android:defaultToDeviceProtectedStorage="true" android:directBootAware="true">
+        <activity android:name=".QuadDACPanelActivity" android:label="@string/quad_dac"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.android.settings.action.EXTRA_SETTINGS" />
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
+            <meta-data android:name="com.android.settings.category" android:value="com.android.settings.category.ia.sound" />
+            <meta-data android:name="com.android.settings.icon" android:resource="@drawable/ic_quad_dac_icon" />
+        </activity>
+        <activity android:name=".FlashlightActivity" android:label="@string/flashlight"
+            android:exported="true" android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert" />
+        <service android:name=".QuadDACTileService" android:icon="@drawable/ic_quad_dac_icon"
+            android:label="@string/quad_dac" android:exported="true"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
+        <service android:name=".FlashlightTileService" android:icon="@drawable/ic_flashlight"
+            android:label="@string/flashlight" android:exported="true"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
+        <service android:name=".RestoreJob" android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+        <receiver android:name=".BootReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" /></intent-filter>
+        </receiver>
+    </application>
+</manifest>

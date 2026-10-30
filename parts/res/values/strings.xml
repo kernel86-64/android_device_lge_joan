@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_settings">Device settings</string>
+    <string name="quad_dac">Hi-Fi Quad DAC</string>
+    <string name="quad_dac_on">Quad DAC on</string>
+    <string name="quad_dac_off">Quad DAC off</string>
+    <string name="quad_dac_unavail">Quad DAC unavailable</string>
+    <string name="connect_headphones">Connect wired headphones</string>
+    <string name="flashlight">Flashlight</string>
+    <string name="brightness">Brightness</string>
+    <string name="level">Level %1$d of 5</string>
+    <string name="off">Off</string>
+    <string name="on">On</string>
+    <string name="unavailable">Unavailable</string>
+    <string name="hardware_error">Could not apply the setting</string>
+    <string name="digital_filter">Digital filter</string>
+    <string name="headphone_type">Headphone type</string>
+    <string name="analog_volume">Analog volume</string>
+    <string-array name="filters">
+        <item>Fast Roll-off</item><item>Slow Roll-off</item><item>Minimum Phase Fast</item>
+        <item>Minimum Phase Slow</item><item>Apodizing Fast</item><item>Short</item>
+        <item>Hybrid Fast</item><item>Brick Wall</item>
+    </string-array>
+    <string-array name="headphone_types"><item>Normal</item><item>High Impedance</item><item>AUX</item></string-array>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="quad_dac">Hi-Fi クアッド DAC</string>
+  <string name="quad_dac_off">クアッド DAC オフ</string>
+  <string name="quad_dac_on">クアッド DAC オン</string>
+  <string name="quad_dac_unavail">クアッド DAC 利用不可</string>
+</resources>

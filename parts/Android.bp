@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+android_app {
+    name: "JoanDeviceParts",
+    srcs: ["src/**/*.java"],
+    resource_dirs: ["res"],
+    platform_apis: true,
+    certificate: "platform",
+    system_ext_specific: true,
+    privileged: true,
+    privapp_allowlist: "privapp-permissions-joan-device-parts.xml",
+    optimize: { enabled: false },
+}

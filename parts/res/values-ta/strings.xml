@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="quad_dac">உயர்திறன் Quad DAC</string>
+  <string name="quad_dac_off">Quad DAC அணைவு</string>
+  <string name="quad_dac_on">Quad DAC இயக்கம்</string>
+  <string name="quad_dac_unavail">Quad DAC கிடைக்கவில்லை</string>
+</resources>

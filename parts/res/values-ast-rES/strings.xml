@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="quad_dac">Quad DAC Hi-Fi</string>
+  <string name="quad_dac_off">Quad DAC desactiváu</string>
+  <string name="quad_dac_on">Quad DAC activáu</string>
+  <string name="quad_dac_unavail">Quad DAC nun ta disponible</string>
+</resources>

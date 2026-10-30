@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="quad_dac">Hi-Fi Quad DAC</string>
+  <string name="quad_dac_off">Quad DAC 꺼짐</string>
+  <string name="quad_dac_on">Quad DAC 켜짐</string>
+  <string name="quad_dac_unavail">Quad DAC 이용할 수 없음</string>
+</resources>

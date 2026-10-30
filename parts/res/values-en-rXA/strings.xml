@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="quad_dac">[Ĥî-Fî qûåð ÐÅÇ one two three]</string>
+  <string name="quad_dac_off">[qûåð ÐÅÇ öƒƒ one two]</string>
+  <string name="quad_dac_on">[qûåð ÐÅÇ öñ one two]</string>
+  <string name="quad_dac_unavail">[qûåð ÐÅÇ ûñåVåîļåɓļé one two three]</string>
+</resources>

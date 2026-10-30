@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="quad_dac_off">Slökkt á Quad DAC</string>
+  <string name="quad_dac_on">Kveikt á Quad DAC</string>
+  <string name="quad_dac_unavail">Quad DAC ekki tiltækt</string>
+</resources>

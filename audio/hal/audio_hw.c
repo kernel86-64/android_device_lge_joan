@@ -57,6 +57,7 @@ struct joan_audio_device {
     time_t route_retry_after;
     audio_mode_t mode;
     bool mic_mute;
+    bool quad_dac;
     const char *out_path; /* route applied for the active output, or NULL */
     const char *in_path;
     struct joan_stream_out *output;
@@ -158,10 +159,10 @@ static int ensure_routes(struct joan_audio_device *adev)
     return 0;
 }
 
-static const char *output_path(audio_devices_t devices, audio_mode_t mode)
+static const char *output_path(audio_devices_t devices, audio_mode_t mode, bool quad_dac)
 {
     if (devices & (AUDIO_DEVICE_OUT_WIRED_HEADSET | AUDIO_DEVICE_OUT_WIRED_HEADPHONE))
-        return "headphones";
+        return quad_dac ? "headphones-hifi" : "headphones";
     if (devices & AUDIO_DEVICE_OUT_EARPIECE)
         return "earpiece";
     (void)mode;
@@ -250,7 +251,7 @@ static int start_output(struct joan_stream_out *out)
     if (ensure_routes(adev) != 0)
         return -ENODEV;
 
-    set_out_route(adev, output_path(out->devices, adev->mode));
+    set_out_route(adev, output_path(out->devices, adev->mode, adev->quad_dac));
     out->pcm = open_pcm(adev->card, PCM_PLAYBACK, PCM_OUT | PCM_MONOTONIC, &out->config);
     if (!out->pcm) {
         set_out_route(adev, NULL);
@@ -325,7 +326,7 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
         pthread_mutex_lock(&adev->lock);
         pthread_mutex_lock(&out->lock);
         if (devices != AUDIO_DEVICE_NONE && devices != out->devices) {
-            const char *path = output_path(devices, adev->mode);
+            const char *path = output_path(devices, adev->mode, adev->quad_dac);
 
             /* the route can only change while the frontend is closed */
             if (!out->standby && path != adev->out_path)
@@ -700,16 +701,119 @@ static void adev_close_output_stream(struct audio_hw_device *dev,
     free(out);
 }
 
-static int adev_set_parameters(struct audio_hw_device *dev __unused, const char *kvpairs)
+/* Device settings use the primary HAL so routing changes share the PCM lock.
+ * Never flip the DAC pins under a running stream: the next write reopens it.
+ */
+static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
 {
-    ALOGV("set_parameters: %s", kvpairs);
-    return 0;
+    struct joan_audio_device *adev = (struct joan_audio_device *)dev;
+    struct str_parms *parms = str_parms_create_str(kvpairs);
+    struct mixer *mixer = NULL;
+    int enabled, ret = 0;
+    static const struct { const char *key; const char *control; int max; } controls[] = {
+        { "joan_dac_filter", "Headphone Digital Filter", 7 },
+        { "joan_dac_type", "Headphone Type", 2 },
+        { "joan_dac_volume", "Headphone Analog Volume", 24 },
+    };
+
+    if (!parms)
+        return -ENOMEM;
+    pthread_mutex_lock(&adev->lock);
+    if (str_parms_get_int(parms, "joan_quad_dac", &enabled) >= 0) {
+        if (enabled != 0 && enabled != 1) {
+            ret = -EINVAL;
+            goto done;
+        }
+        if (adev->quad_dac != (bool)enabled) {
+            if (adev->output) {
+                pthread_mutex_lock(&adev->output->lock);
+                do_out_standby(adev->output);
+                pthread_mutex_unlock(&adev->output->lock);
+            }
+            adev->quad_dac = enabled;
+        }
+    }
+    for (size_t i = 0; i < sizeof(controls) / sizeof(controls[0]); i++) {
+        int value;
+        struct mixer_ctl *ctl;
+        if (str_parms_get_int(parms, controls[i].key, &value) < 0)
+            continue;
+        if (value < 0 || value > controls[i].max) {
+            ret = -EINVAL;
+            break;
+        }
+        if (!mixer && ensure_routes(adev) == 0)
+            mixer = mixer_open(adev->card);
+        if (!mixer) {
+            ret = -ENODEV;
+            break;
+        }
+        ctl = mixer_get_ctl_by_name(mixer, controls[i].control);
+        if (!ctl) {
+            ret = -ENODEV;
+            break;
+        }
+        ret = mixer_ctl_set_value(ctl, 0, value);
+        if (ret)
+            break;
+    }
+ done:
+    if (mixer)
+        mixer_close(mixer);
+    pthread_mutex_unlock(&adev->lock);
+    str_parms_destroy(parms);
+    return ret;
 }
 
-static char *adev_get_parameters(const struct audio_hw_device *dev __unused,
-                                 const char *keys __unused)
+static char *adev_get_parameters(const struct audio_hw_device *dev, const char *keys)
 {
-    return strdup("");
+    struct joan_audio_device *adev = (struct joan_audio_device *)dev;
+    struct str_parms *query = str_parms_create_str(keys);
+    struct str_parms *reply = str_parms_create();
+    char *result;
+
+    if (!query || !reply) {
+        if (query) str_parms_destroy(query);
+        if (reply) str_parms_destroy(reply);
+        return strdup("");
+    }
+    pthread_mutex_lock(&adev->lock);
+    if (str_parms_has_key(query, "joan_quad_dac"))
+        str_parms_add_int(reply, "joan_quad_dac", adev->quad_dac);
+    if (str_parms_has_key(query, "joan_dac_available")) {
+        bool available = false;
+        if (ensure_routes(adev) == 0) {
+            struct mixer *mixer = mixer_open(adev->card);
+            if (mixer) {
+                available = mixer_get_ctl_by_name(mixer, "Headphone Mode") != NULL;
+                mixer_close(mixer);
+            }
+        }
+        str_parms_add_int(reply, "joan_dac_available", available);
+    }
+    static const struct { const char *key; const char *control; } controls[] = {
+        { "joan_dac_filter", "Headphone Digital Filter" },
+        { "joan_dac_type", "Headphone Type" },
+        { "joan_dac_volume", "Headphone Analog Volume" },
+    };
+    for (size_t i = 0; i < sizeof(controls) / sizeof(controls[0]); i++) {
+        if (!str_parms_has_key(query, controls[i].key))
+            continue;
+        if (ensure_routes(adev) == 0) {
+            struct mixer *mixer = mixer_open(adev->card);
+            if (mixer) {
+                struct mixer_ctl *ctl = mixer_get_ctl_by_name(mixer, controls[i].control);
+                if (ctl)
+                    str_parms_add_int(reply, controls[i].key, mixer_ctl_get_value(ctl, 0));
+                mixer_close(mixer);
+            }
+        }
+    }
+    pthread_mutex_unlock(&adev->lock);
+    result = str_parms_to_str(reply);
+    str_parms_destroy(query);
+    str_parms_destroy(reply);
+    return result;
 }
 
 static int adev_init_check(const struct audio_hw_device *dev __unused)

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="quad_dac">Hi-Fi چهارگانه DAC</string>
+  <string name="quad_dac_off">چهارگانه DAC خاموش</string>
+  <string name="quad_dac_on">چهارگانه DAC روشن</string>
+  <string name="quad_dac_unavail">چهارگانه DAC در دسترس نیست</string>
+</resources>
