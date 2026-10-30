@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: CC0-1.0
+%YAML 1.1
+---
+# libcamera runtime configuration for the LG V30.
+#
+# The CPU debayer keeps its buffers mapped, so copying input lines first
+# only costs time; four threads use the four big cores.
+version: 1
+configuration:
+  software_isp:
+    copy_input_buffer: false
+    threads: 4

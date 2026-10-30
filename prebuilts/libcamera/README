@@ -1,5 +1,5 @@
-Upstream libcamera (v0.7.2-187, branch joan-android in ~/android/ref/libcamera-upstream:
-bionic sched_setaffinity fix) cross-built with NDK r30:
+Upstream libcamera (v0.7.2-203-gcd11d199, branch joan-android in ~/android/ref/libcamera-upstream:
+bionic and Android HAL fixes for joan) cross-built with NDK r30:
   pipelines=simple ipas=softisp android=enabled android_platform=generic
   prefix=/vendor libdir=lib64 libexecdir=bin sysconfdir=etc datadir=etc
 libjpeg-turbo 3.0.4, libexif 0.6.25 and libyuv are linked statically.

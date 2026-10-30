@@ -1,0 +1,84 @@
+%YAML 1.1
+---
+# LG V30 imx351 (rear main camera).
+#
+# AWB reference points and colour correction matrices come from the stock
+# LG/Qualcomm chromatix 3.10 tuning: the AWB reference table of
+# libchromatix_imx351_default_preview_3a.so (R/G, B/G of grey per illuminant, as gains G/R, G/B)
+# and the colour correction table of libchromatix_imx351_preview.so.
+# The numbers are LG's and Qualcomm's tuning data, not ours to license.
+# The black level and gain model come from the camera sensor helper.
+version: 1
+algorithms:
+  - BlackLevel:
+  - Awb:
+      algorithm: bayes
+      AwbMode:
+        AwbAuto:
+          lo: 2300
+          hi: 7500
+        AwbIncandescent:
+          lo: 2300
+          hi: 3000
+        AwbTungsten:
+          lo: 2800
+          hi: 3500
+        AwbFluorescent:
+          lo: 3500
+          hi: 4500
+        AwbIndoor:
+          lo: 3000
+          hi: 5000
+        AwbDaylight:
+          lo: 5000
+          hi: 6500
+        AwbCloudy:
+          lo: 6500
+          hi: 7500
+      colourGains:
+        - ct: 2300  # H
+          gains: [ 1.0681, 3.0526 ]
+        - ct: 2856  # A
+          gains: [ 1.3177, 2.4996 ]
+        - ct: 4000  # TL84
+          gains: [ 1.6926, 2.0273 ]
+        - ct: 5000  # D50
+          gains: [ 2.0012, 1.6460 ]
+        - ct: 6500  # D65
+          gains: [ 2.3631, 1.3634 ]
+        - ct: 7500  # D75
+          gains: [ 2.4783, 1.2339 ]
+      priors:
+        - lux: 0
+          ct: [ 2000, 8000 ]
+          probability: [ 1.0, 1.0 ]
+  - Ccm:
+      ccms:
+        - ct: 2300  # H
+          ccm: [ 1.8256, -0.9652, 0.1397,
+                 -0.2079, 1.2506, -0.0424,
+                 -0.0491, -1.3725, 2.4216 ]
+          offsets: [ 0, 0, 0 ]
+        - ct: 2856  # A
+          ccm: [ 1.8256, -0.9652, 0.1397,
+                 -0.2079, 1.2506, -0.0424,
+                 -0.0491, -1.3725, 2.4216 ]
+          offsets: [ 0, 0, 0 ]
+        - ct: 4000  # TL84
+          ccm: [ 1.8041, -0.8873, 0.0832,
+                 -0.2731, 1.3270, -0.0539,
+                 -0.0505, -0.8616, 1.9121 ]
+          offsets: [ 0, 0, 0 ]
+        - ct: 5000  # D50
+          ccm: [ 1.7199, -0.7524, 0.0325,
+                 -0.1651, 1.3173, -0.1522,
+                 -0.0140, -0.8976, 1.9115 ]
+          offsets: [ 0, 0, 0 ]
+        - ct: 6500  # D65
+          ccm: [ 1.7199, -0.7524, 0.0325,
+                 -0.1651, 1.3173, -0.1522,
+                 -0.0140, -0.8976, 1.9115 ]
+          offsets: [ 0, 0, 0 ]
+  - Adjust:
+  - Agc:
+...
