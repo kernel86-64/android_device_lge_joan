@@ -1,7 +1,7 @@
 From 034cbf938add34491be947a06b4a871adfe47f6c Mon Sep 17 00:00:00 2001
 From: Dmitry Baryshkov <dmitry.baryshkov@oss.qualcomm.com>
 Date: Sun, 28 Dec 2025 06:02:27 +0200
-Subject: [PATCH 21/78] drm/msm/dpu: drop intr_start from DPU 3.x catalog files
+Subject: [PATCH 21/80] drm/msm/dpu: drop intr_start from DPU 3.x catalog files
 
 DPU 3.x don't have separate intr_start interrupt, drop it from catalog
 files.

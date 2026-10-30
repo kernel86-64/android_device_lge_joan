@@ -1,7 +1,7 @@
 From fd58dde8def6577c75138514dee504c9eccc1427 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sat, 24 Oct 2026 19:59:42 +0000
-Subject: [PATCH 46/78] Revert the CPU BWMON: its RPM bandwidth votes time out
+Subject: [PATCH 46/80] Revert the CPU BWMON: its RPM bandwidth votes time out
  (-110) and take the ADSP with them
 
 v27 (with BWMON) logs "qcom-bwmon ... Failed to set bandwidth: -110" and

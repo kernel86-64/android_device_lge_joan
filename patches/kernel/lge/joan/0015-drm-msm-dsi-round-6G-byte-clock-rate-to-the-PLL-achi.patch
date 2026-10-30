@@ -1,7 +1,7 @@
 From 928bc7d0b5d6dc0d1e3de7d4d1f5083f63342cbc Mon Sep 17 00:00:00 2001
 From: Kavan Smith <kavansmith82@gmail.com>
 Date: Mon, 6 Jul 2026 18:32:40 -0700
-Subject: [PATCH 15/78] drm/msm/dsi: round 6G byte clock rate to the
+Subject: [PATCH 15/80] drm/msm/dsi: round 6G byte clock rate to the
  PLL-achievable value
 
 MSM8916 runtime DSI commands still go through

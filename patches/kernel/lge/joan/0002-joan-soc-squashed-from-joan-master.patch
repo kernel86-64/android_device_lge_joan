@@ -1,7 +1,7 @@
 From 620740a24571a3bdd12eaa85d474bd3e5f7e1bc5 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:56:53 +0000
-Subject: [PATCH 02/78] joan: soc (squashed from joan/master)
+Subject: [PATCH 02/80] joan: soc (squashed from joan/master)
 
 ---
  drivers/clk/qcom/Kconfig                   |    9 +

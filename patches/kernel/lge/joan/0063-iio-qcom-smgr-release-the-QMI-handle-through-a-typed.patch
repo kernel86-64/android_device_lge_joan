@@ -1,7 +1,7 @@
 From c3f95d66237d62b563f63a2abea3273692b93384 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 07:09:43 +0400
-Subject: [PATCH 63/78] iio: qcom-smgr: release the QMI handle through a typed
+Subject: [PATCH 63/80] iio: qcom-smgr: release the QMI handle through a typed
  callback; enable on joan
 
 devm_add_action_or_reset() took qmi_handle_release() cast to

@@ -1,7 +1,7 @@
 From 5790373d9534c83ed4b8c41fa964ead5f7f1ada4 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:57:02 +0000
-Subject: [PATCH 08/78] joan: input (squashed from joan/master)
+Subject: [PATCH 08/80] joan: input (squashed from joan/master)
 
 ---
  drivers/iio/proximity/Kconfig       |   2 +

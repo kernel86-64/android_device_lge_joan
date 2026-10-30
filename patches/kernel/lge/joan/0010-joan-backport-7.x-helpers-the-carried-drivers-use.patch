@@ -1,7 +1,7 @@
 From 3f35edb9552fbff34cf31a46c61b153ba676dd6c Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 17:29:24 +0000
-Subject: [PATCH 10/78] joan: backport 7.x helpers the carried drivers use
+Subject: [PATCH 10/80] joan: backport 7.x helpers the carried drivers use
 
 Make the GFP argument of k*alloc_obj*() optional (default_gfp()), as
 later kernels do; callers that pass flags are unaffected. Add a

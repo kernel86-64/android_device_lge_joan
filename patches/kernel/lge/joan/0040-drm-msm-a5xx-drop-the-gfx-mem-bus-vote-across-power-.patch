@@ -1,7 +1,7 @@
 From 82e47cb04ef9b3d24b0574baca8b2e109bf85723 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sat, 24 Oct 2026 06:43:45 +0000
-Subject: [PATCH 40/78] drm/msm/a5xx: drop the gfx-mem bus vote across power
+Subject: [PATCH 40/80] drm/msm/a5xx: drop the gfx-mem bus vote across power
  collapse
 
 The A540 held its peak gfx-mem interconnect vote for as long as the

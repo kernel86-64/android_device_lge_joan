@@ -1,7 +1,7 @@
 From be3dc36c446e44e00787dd940c32f6bb1c01cf1e Mon Sep 17 00:00:00 2001
 From: Konrad Dybcio <konrad.dybcio@oss.qualcomm.com>
 Date: Tue, 28 Jul 2026 15:20:47 +0200
-Subject: [PATCH 17/78] drm/msm/dsi: Drop dev_pm_opp_set_rate(0)
+Subject: [PATCH 17/80] drm/msm/dsi: Drop dev_pm_opp_set_rate(0)
 
 dev_pm_opp_set_rate(0) removes the vote specified in required-opps but
 does not actually park the clock, making it run without the necessary

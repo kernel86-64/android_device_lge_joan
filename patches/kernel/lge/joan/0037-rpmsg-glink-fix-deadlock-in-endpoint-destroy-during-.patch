@@ -1,7 +1,7 @@
 From 8fa4ec202b35285d253be5440524525a588df3df Mon Sep 17 00:00:00 2001
 From: Vishnu Santhosh <vishnu.santhosh@oss.qualcomm.com>
 Date: Thu, 4 Jun 2026 14:12:53 +0530
-Subject: [PATCH 37/78] rpmsg: glink: fix deadlock in endpoint destroy during
+Subject: [PATCH 37/80] rpmsg: glink: fix deadlock in endpoint destroy during
  driver detach
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

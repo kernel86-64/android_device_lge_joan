@@ -1,7 +1,7 @@
 From 8bbe3ccaf884e7b81fa18c774cc7a91d90116691 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 09:27:36 +0400
-Subject: [PATCH 68/78] remoteproc: qcom: pas: let a board keep one processor
+Subject: [PATCH 68/80] remoteproc: qcom: pas: let a board keep one processor
  from auto-booting
 
 All processors of one PAS driver instance auto-boot when it probes, so

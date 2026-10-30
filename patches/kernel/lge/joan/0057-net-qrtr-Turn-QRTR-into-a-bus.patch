@@ -1,7 +1,7 @@
 From 802cc4b86d3e109ace66aa5f587801a35beffdb6 Mon Sep 17 00:00:00 2001
 From: Yassine Oudjana <y.oudjana@protonmail.com>
 Date: Thu, 10 Jul 2025 09:06:28 +0100
-Subject: [PATCH 57/78] net: qrtr: Turn QRTR into a bus
+Subject: [PATCH 57/80] net: qrtr: Turn QRTR into a bus
 
 Implement a QRTR bus to allow for creating drivers for individual QRTR
 services. With this in place, devices are dynamically registered for QRTR

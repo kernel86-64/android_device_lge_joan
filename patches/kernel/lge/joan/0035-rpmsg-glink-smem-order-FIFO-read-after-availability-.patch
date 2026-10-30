@@ -1,7 +1,7 @@
 From bb4619bdd6b8c789f79d02feeb50036095034ed0 Mon Sep 17 00:00:00 2001
 From: Chunkai Deng <chunkai.deng@oss.qualcomm.com>
 Date: Thu, 18 Jun 2026 00:16:39 -0700
-Subject: [PATCH 35/78] rpmsg: glink: smem: order FIFO read after availability
+Subject: [PATCH 35/80] rpmsg: glink: smem: order FIFO read after availability
  check
 
 glink_smem_rx_peek() reads the RX FIFO payload after the caller has

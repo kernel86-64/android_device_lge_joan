@@ -1,7 +1,7 @@
 From 9cfda28b74bcdd28ee6c04564f78227bb5047ebd Mon Sep 17 00:00:00 2001
 From: Yassine Oudjana <y.oudjana@protonmail.com>
 Date: Thu, 10 Jul 2025 09:06:30 +0100
-Subject: [PATCH 59/78] iio: Add Qualcomm Sensor Manager driver
+Subject: [PATCH 59/80] iio: Add Qualcomm Sensor Manager driver
 
 Add a driver for sensors exposed by the Qualcomm Sensor Manager service,
 which is provided by SLPI or ADSP on Qualcomm SoCs. Supported sensors

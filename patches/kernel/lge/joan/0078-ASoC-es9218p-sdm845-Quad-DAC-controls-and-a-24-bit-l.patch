@@ -1,7 +1,7 @@
 From 31e86ea67c930642a1bd3c254181d3206365e194 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 30 Oct 2026 04:56:09 +0400
-Subject: [PATCH 78/78] ASoC: es9218p, sdm845: Quad DAC controls and a 24-bit
+Subject: [PATCH 78/80] ASoC: es9218p, sdm845: Quad DAC controls and a 24-bit
  link on joan
 
 Expose the ES9218P digital filter, headphone type and analog volume as

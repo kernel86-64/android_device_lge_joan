@@ -1,7 +1,7 @@
 From ccf76dbfddf06cbde7bf4f83e2347c7d38926628 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 09:59:02 +0400
-Subject: [PATCH 71/78] arm64: dts: qcom: msm8998: stop the CPU BWMON at 1555
+Subject: [PATCH 71/80] arm64: dts: qcom: msm8998: stop the CPU BWMON at 1555
  MHz DDR
 
 With the CPU BWMON driving the EBI vote on its own, reaching the vendor

@@ -1,7 +1,7 @@
 From d8550bf8f313fa69eb84249d0df72aa8ff2404a7 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 09:41:47 +0400
-Subject: [PATCH 70/78] soc: qcom: icc-bwmon: vote with headroom over measured
+Subject: [PATCH 70/80] soc: qcom: icc-bwmon: vote with headroom over measured
  traffic
 
 The monitor votes the OPP that covers the traffic it measured. For the

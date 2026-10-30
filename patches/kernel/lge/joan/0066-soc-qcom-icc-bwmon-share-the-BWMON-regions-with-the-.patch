@@ -1,7 +1,7 @@
 From 6ad16909985b7485275413e8a55e075d604ad1cf Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 08:08:51 +0400
-Subject: [PATCH 66/78] soc: qcom: icc-bwmon: share the BWMON regions with the
+Subject: [PATCH 66/80] soc: qcom: icc-bwmon: share the BWMON regions with the
  BIMC driver
 
 On MSM8998 the CPU BWMON's monitor (0x01008000) and global (0x01001000)

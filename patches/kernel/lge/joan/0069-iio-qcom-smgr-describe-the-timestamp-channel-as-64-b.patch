@@ -1,7 +1,7 @@
 From 5e0f44f29e554bbfcc151e04ee984ba9381aa268 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 09:39:40 +0400
-Subject: [PATCH 69/78] iio: qcom-smgr: describe the timestamp channel as
+Subject: [PATCH 69/80] iio: qcom-smgr: describe the timestamp channel as
  64-bit
 
 The timestamp channels declared 32 real bits in 64-bit storage, so

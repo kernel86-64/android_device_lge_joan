@@ -1,7 +1,7 @@
 From cabf4b380fd69b7441d058e1c2624e8ac4f15387 Mon Sep 17 00:00:00 2001
 From: Lance <Gero3977@gmail.com>
 Date: Fri, 16 Oct 2026 15:29:57 -0700
-Subject: [PATCH 60/78] iio: qcom-smgr: drop the stale accelerometer subdriver
+Subject: [PATCH 60/80] iio: qcom-smgr: drop the stale accelerometer subdriver
 
 The v2 core registers every supported sensor directly, but the patch
 series still ships the v1 accelerometer platform driver. It references

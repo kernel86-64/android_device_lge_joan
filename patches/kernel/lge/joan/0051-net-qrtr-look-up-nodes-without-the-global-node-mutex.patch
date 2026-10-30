@@ -1,7 +1,7 @@
 From 737330889997f3782619e909b1226958d49115b4 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Wed, 28 Oct 2026 22:04:26 +0400
-Subject: [PATCH 51/78] net: qrtr: look up nodes without the global node mutex
+Subject: [PATCH 51/80] net: qrtr: look up nodes without the global node mutex
 
 Broadcasts hold qrtr_node_lock while calling into transports that can
 sleep waiting for a remote processor, which stalled unicast lookups (and

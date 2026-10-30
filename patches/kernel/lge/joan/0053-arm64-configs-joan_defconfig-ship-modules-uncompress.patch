@@ -1,7 +1,7 @@
 From 9fa644884f0828ddc56b2254775d0772f99bcd97 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Wed, 28 Oct 2026 22:04:26 +0400
-Subject: [PATCH 53/78] arm64: configs: joan_defconfig: ship modules
+Subject: [PATCH 53/80] arm64: configs: joan_defconfig: ship modules
  uncompressed
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

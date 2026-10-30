@@ -1,7 +1,7 @@
 From cc15dc9fbbca0d2f4d525742558931c95ed4a4d2 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sat, 24 Oct 2026 07:08:27 +0000
-Subject: [PATCH 41/78] arm64: configs: joan_defconfig: build rmnet in for
+Subject: [PATCH 41/80] arm64: configs: joan_defconfig: build rmnet in for
  mobile data
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

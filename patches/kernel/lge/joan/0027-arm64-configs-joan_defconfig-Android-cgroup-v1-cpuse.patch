@@ -1,7 +1,7 @@
 From 4b3bdd9faf0e22fe1f113a3215ea01b6c65f8657 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 23 Oct 2026 14:38:44 +0000
-Subject: [PATCH 27/78] arm64: configs: joan_defconfig: Android cgroup v1
+Subject: [PATCH 27/80] arm64: configs: joan_defconfig: Android cgroup v1
  cpuset, cgroup extras, unicode
 
 Android still mounts cpuset as a v1 hierarchy; without CPUSETS_V1 init's

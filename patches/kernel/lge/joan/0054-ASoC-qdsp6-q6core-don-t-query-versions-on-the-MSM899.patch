@@ -1,7 +1,7 @@
 From 06b614c0355ee6fd1d38246989d64a711f126292 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 03:04:55 +0400
-Subject: [PATCH 54/78] ASoC: qdsp6: q6core: don't query versions on the
+Subject: [PATCH 54/80] ASoC: qdsp6: q6core: don't query versions on the
  MSM8998 ADSP
 
 AVCS_CMD_GET_FWK_VERSION wedges the MSM8998 ADSP firmware: it stops

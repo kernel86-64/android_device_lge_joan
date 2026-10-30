@@ -1,7 +1,7 @@
 From 9e21b3915bea7c10e50ca488ff9cfb8d2d4c9816 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 07:32:19 +0400
-Subject: [PATCH 65/78] arm64: dts: qcom: msm8998: match the CPU capacities to
+Subject: [PATCH 65/80] arm64: dts: qcom: msm8998: match the CPU capacities to
  the vendor energy model
 
 The scheduler derived a little-core capacity of 528 from dmips 1024/1536,

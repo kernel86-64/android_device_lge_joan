@@ -1,7 +1,7 @@
 From c6582881abb4df2c1eb00bb0209add548d671826 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:57:00 +0000
-Subject: [PATCH 06/78] joan: power (squashed from joan/master)
+Subject: [PATCH 06/80] joan: power (squashed from joan/master)
 
 ---
  .../qualcomm/phy-qcom-qmp-dp-phy-v3-8998.h    |  41 +

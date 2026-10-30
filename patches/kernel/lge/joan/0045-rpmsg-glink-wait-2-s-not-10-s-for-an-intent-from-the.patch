@@ -1,7 +1,7 @@
 From 199896c75f5c6947e08f45d94c265c1616c99ad5 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sat, 24 Oct 2026 11:15:43 +0000
-Subject: [PATCH 45/78] rpmsg: glink: wait 2 s, not 10 s, for an intent from
+Subject: [PATCH 45/80] rpmsg: glink: wait 2 s, not 10 s, for an intent from
  the remote
 
 joan's ADSP never grants intents. Every APPS->ADSP message then blocked

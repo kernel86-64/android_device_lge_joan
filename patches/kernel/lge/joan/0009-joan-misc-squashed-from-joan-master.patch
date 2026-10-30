@@ -1,7 +1,7 @@
 From cefe7e05a8b8fb7fc0d3831b5df99a9b68ad7d20 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:57:03 +0000
-Subject: [PATCH 09/78] joan: misc (squashed from joan/master)
+Subject: [PATCH 09/80] joan: misc (squashed from joan/master)
 
 ---
  drivers/mmc/core/queue.c     |  1 +

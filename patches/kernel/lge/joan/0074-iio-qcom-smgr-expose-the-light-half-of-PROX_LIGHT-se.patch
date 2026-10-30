@@ -1,7 +1,7 @@
 From c05a4aa40dfb1e3cfabcfaa6d80c17a12aa1c024 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 20:29:39 +0400
-Subject: [PATCH 74/78] iio: qcom-smgr: expose the light half of PROX_LIGHT
+Subject: [PATCH 74/80] iio: qcom-smgr: expose the light half of PROX_LIGHT
  sensors
 
 A PROX_LIGHT sensor reports proximity as its primary data type and

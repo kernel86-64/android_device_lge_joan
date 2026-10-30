@@ -1,7 +1,7 @@
 From 723af451259552664071ed0153d9bb5fdef1382e Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sat, 24 Oct 2026 21:41:14 +0000
-Subject: [PATCH 48/78] arm64: dts: qcom: msm8998: never enter the
+Subject: [PATCH 48/80] arm64: dts: qcom: msm8998: never enter the
  power-collapse idle states
 
 The C3/D4 states (little/big power collapse) use local-timer-stop and

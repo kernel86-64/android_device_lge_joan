@@ -1,7 +1,7 @@
 From b7313d0e80db877addeb1d5b56adf7082742dc32 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 23 Oct 2026 22:28:31 +0000
-Subject: [PATCH 34/78] nfc: add the PN5xx Android character device; use it on
+Subject: [PATCH 34/80] nfc: add the PN5xx Android character device; use it on
  joan
 
 Android's NXP NFC HAL drives the controller through /dev/pn54x and

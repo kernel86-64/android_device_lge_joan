@@ -1,7 +1,7 @@
 From d20ae4146a2ea647285a0f880655d32225acaf45 Mon Sep 17 00:00:00 2001
 From: Yassine Oudjana <y.oudjana@protonmail.com>
 Date: Thu, 10 Jul 2025 09:06:29 +0100
-Subject: [PATCH 58/78] net: qrtr: Define macro to convert QMI version and
+Subject: [PATCH 58/80] net: qrtr: Define macro to convert QMI version and
  instance to QRTR instance
 
 Move QRTR instance conversion from qmi_interface into a new macro in order

@@ -1,7 +1,7 @@
 From f97a7c708ed36eb58f1ac2ec862feb8dc4e5d513 Mon Sep 17 00:00:00 2001
 From: Yassine Oudjana <y.oudjana@protonmail.com>
 Date: Thu, 10 Jul 2025 09:06:27 +0100
-Subject: [PATCH 56/78] net: qrtr: smd: Rename qdev to qsdev
+Subject: [PATCH 56/80] net: qrtr: smd: Rename qdev to qsdev
 
 In preparation to turn QRTR into a bus, rename replace all current
 occurences of qdev in smd.c with qsdev in order to distinguish between the

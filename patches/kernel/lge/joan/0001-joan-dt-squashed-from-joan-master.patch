@@ -1,7 +1,7 @@
 From 135251922650a888785f4f880510eb315e1122b7 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:56:50 +0000
-Subject: [PATCH 01/78] joan: dt (squashed from joan/master)
+Subject: [PATCH 01/80] joan: dt (squashed from joan/master)
 
 ---
  .../devicetree/bindings/arm/qcom.yaml         |    1 +

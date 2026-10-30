@@ -1,7 +1,7 @@
 From 97b34065565a7ad141bded920143cd9055678be1 Mon Sep 17 00:00:00 2001
 From: Abel Vesa <abel.vesa@oss.qualcomm.com>
 Date: Fri, 12 Jun 2026 14:09:08 +0300
-Subject: [PATCH 38/78] remoteproc: qcom: q6v5: Make handover IRQ one-shot
+Subject: [PATCH 38/80] remoteproc: qcom: q6v5: Make handover IRQ one-shot
 
 The handover interrupt is expected to be consumed once during each prepare
 cycle. If the remote processor keeps signalling handover after the first

@@ -1,7 +1,7 @@
 From ed4ba0aeecae568e013eeff10dbbd3b7c596d5bb Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Wed, 28 Oct 2026 22:04:25 +0400
-Subject: [PATCH 50/78] drm/msm/dpu: check bandwidth against the proposed
+Subject: [PATCH 50/80] drm/msm/dpu: check bandwidth against the proposed
  atomic state
 
 Compute plane fetch bandwidth and clock in atomic_check from the new plane

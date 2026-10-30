@@ -1,7 +1,7 @@
 From 8b99dede9ab387119992a975af15e4ca206c78af Mon Sep 17 00:00:00 2001
 From: Alexander Koskovich <akoskovich@pm.me>
 Date: Tue, 24 Mar 2026 11:48:38 +0000
-Subject: [PATCH 13/78] drm/msm/dsi: add DSI version >= comparison helper
+Subject: [PATCH 13/80] drm/msm/dsi: add DSI version >= comparison helper
 
 Add a helper for checking if the DSI hardware version is greater
 than or equal to a given version, for use in a future change.

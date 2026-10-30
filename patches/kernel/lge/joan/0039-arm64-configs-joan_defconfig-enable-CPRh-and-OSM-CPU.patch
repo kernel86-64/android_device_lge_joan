@@ -1,7 +1,7 @@
 From a96328d70f3efbbecccd30977d925d1081fab145 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Fri, 23 Oct 2026 23:18:27 +0000
-Subject: [PATCH 39/78] arm64: configs: joan_defconfig: enable CPRh and OSM CPU
+Subject: [PATCH 39/80] arm64: configs: joan_defconfig: enable CPRh and OSM CPU
  DVFS
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

@@ -1,7 +1,7 @@
 From 00a3fb76548d032da740ff0300766927a5a1feb2 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 07:29:46 +0400
-Subject: [PATCH 64/78] arm64: dts: qcom: msm8998: scale DDR with CPU traffic
+Subject: [PATCH 64/80] arm64: dts: qcom: msm8998: scale DDR with CPU traffic
  via the BWMON
 
 msm8998 has no CPU-to-DDR bandwidth vote: the apps path only carried

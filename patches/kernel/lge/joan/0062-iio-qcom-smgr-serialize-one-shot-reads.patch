@@ -1,7 +1,7 @@
 From f1868f8acd6ecb4c985fd402ceb4ed80def2d226 Mon Sep 17 00:00:00 2001
 From: Lance <Gero3977@gmail.com>
 Date: Sun, 25 Oct 2026 11:51:16 -0700
-Subject: [PATCH 62/78] iio: qcom-smgr: serialize one-shot reads
+Subject: [PATCH 62/80] iio: qcom-smgr: serialize one-shot reads
 
 Concurrent read_raw(RAW) calls in direct mode race each other's
 enable/wait/disable buffering cycles: one reader's disable can kill

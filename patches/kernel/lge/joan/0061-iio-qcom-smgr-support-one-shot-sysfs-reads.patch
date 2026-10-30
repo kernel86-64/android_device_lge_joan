@@ -1,7 +1,7 @@
 From e072290939658a0987d82a9f95417501b5b15af3 Mon Sep 17 00:00:00 2001
 From: Lance <Gero3977@gmail.com>
 Date: Sun, 25 Oct 2026 10:53:15 -0700
-Subject: [PATCH 61/78] iio: qcom-smgr: support one-shot sysfs reads
+Subject: [PATCH 61/80] iio: qcom-smgr: support one-shot sysfs reads
 
 iio-sensor-proxy polls in_*_raw sysfs attributes, which the SMGR driver
 did not expose: channels had no IIO_CHAN_INFO_RAW and read_raw only

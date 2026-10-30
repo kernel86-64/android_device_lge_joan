@@ -1,7 +1,7 @@
 From e78b752e7b1dd1ce9ad0ace797e62781f7d6b51d Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 22 Oct 2026 16:57:02 +0000
-Subject: [PATCH 07/78] joan: net (squashed from joan/master)
+Subject: [PATCH 07/80] joan: net (squashed from joan/master)
 
 ---
  drivers/bluetooth/Kconfig                     |   1 +

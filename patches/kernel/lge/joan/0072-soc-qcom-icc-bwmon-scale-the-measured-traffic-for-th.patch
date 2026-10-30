@@ -1,7 +1,7 @@
 From 2e52dab382ac402cbf0f450ef6435d914eaa3d34 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Thu, 29 Oct 2026 19:38:07 +0400
-Subject: [PATCH 72/78] soc: qcom: icc-bwmon: scale the measured traffic for
+Subject: [PATCH 72/80] soc: qcom: icc-bwmon: scale the measured traffic for
  the headroom vote
 
 The io-percent headroom was applied to the OPP the measurement rounded
