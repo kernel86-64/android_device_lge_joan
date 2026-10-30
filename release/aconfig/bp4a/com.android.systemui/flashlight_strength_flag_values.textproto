@@ -1,0 +1,8 @@
+# The QS flashlight tile opens a strength slider (the camera HAL reports
+# FLASH_INFO_STRENGTH_* for the rear flash).
+flag_value {
+  package: "com.android.systemui"
+  name: "flashlight_strength"
+  state: ENABLED
+  permission: READ_WRITE
+}

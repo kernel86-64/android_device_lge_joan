@@ -18,6 +18,9 @@ PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
 PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
 
+# aconfig flag overrides for the bp4a release (QS flashlight strength slider)
+PRODUCT_RELEASE_CONFIG_MAPS += $(LOCAL_PATH)/release/release_config_map.textproto
+
 # Sensors: the SLPI serves them through the qcom-smgr IIO driver; the
 # joan IIO sub-HAL runs under the AIDL multihal. sns-reg answers the
 # SLPI's registry requests from LG's sensor_def files, without which the

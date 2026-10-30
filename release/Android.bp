@@ -1,0 +1,6 @@
+release_config_contributions {
+    name: "release_config_contributions-joan",
+    srcs: [
+        "release_configs/*.textproto",
+    ],
+}

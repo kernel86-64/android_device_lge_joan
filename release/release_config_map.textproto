@@ -1,0 +1,5 @@
+# joan's aconfig flag overrides on top of the platform release configs.
+default_containers: "system"
+default_containers: "system_ext"
+default_containers: "product"
+default_containers: "vendor"
