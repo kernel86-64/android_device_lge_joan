@@ -2,6 +2,8 @@
 # Keep diagnostics on unencrypted /data so recovery can read a wedged boot.
 # This must be a script: init expands '$' in service command arguments before
 # invoking a shell, so inline shell variables/command substitutions are unsafe.
+# Development builds only (androidboot.joan.bootlog=1): logcat holds user data.
+[ "$(getprop ro.boot.joan.bootlog)" = 1 ] || exit 0
 umask 022
 D=/data/local/tmp/joan/$(cat /proc/sys/kernel/random/boot_id | cut -c1-8)
 mkdir -p "$D/pstore" || exit 1

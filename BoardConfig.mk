@@ -47,8 +47,12 @@ BOARD_KERNEL_CMDLINE := \
     loop.max_part=7 \
     log_buf_len=4M \
     loglevel=4 \
-    androidboot.joan.logcat_kmsg=0 \
-    androidboot.joan.bootlog=1
+    androidboot.joan.logcat_kmsg=0
+# Development builds (JOAN_DEBUG=true) record every boot's kernel log,
+# logcat and pstore under /data/local/tmp/joan; release builds do not.
+ifeq ($(JOAN_DEBUG),true)
+BOARD_KERNEL_CMDLINE += androidboot.joan.bootlog=1
+endif
 BOARD_KERNEL_IMAGE_NAME := Image.gz
 BOARD_KERNEL_APPEND_DTBS := qcom/msm8998-lg-joan.dtb
 TARGET_KERNEL_SOURCE := kernel/lge/joan

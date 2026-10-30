@@ -5,9 +5,10 @@ An unofficial LineageOS 23.2 port for the LG V30 that runs on a mainline-based
 Bluetooth and the rest use open drivers (Mesa freedreno, ath10k, btqca, ...)
 rather than the old Qualcomm/LG HALs.
 
-> **Status: early bring-up.** It boots to a usable Android 16 home screen, but
-> several core features (mobile network, camera preview, Android audio) do not work
-> yet. Do not use it as a daily driver.
+> **Status: early.** It boots to a usable Android 16 and most hardware works,
+> including mobile data, Android audio, the cameras and the sensors. SELinux
+> is still permissive and some features are missing (see below). Treat it
+> as a testing build, not a daily driver.
 
 Tested only on the **US998** (V30+, 128 GB). Other variants share the
 hardware, but nobody has tried them.
@@ -18,26 +19,30 @@ hardware, but nobody has tried them.
 |---|---|
 | Boot to Android 16 | Works |
 | Display (1440x2880, 60 Hz) | Works |
-| GPU | OpenGL ES via Mesa freedreno (no Vulkan on A540) |
+| GPU | OpenGL ES 3.1 via Mesa freedreno (no Vulkan on A540) |
 | Touch, buttons | Works, including after screen off/on |
+| Mobile network | LTE data and registration work (tested on one carrier) |
 | Wi-Fi | Scans and connects (ath10k, no vendor HAL) |
 | Bluetooth | Works (btqca/hci_uart) |
-| USB / ADB | Works; MTP needs the framework running |
+| Audio | Loudspeaker through Android's audio HAL |
+| Quad DAC | ES9218P with digital filter, headphone type and analog volume controls, a Quad DAC tile and a 24-bit link (headphone output not yet tested by ear) |
+| Cameras | All three: preview and photos (libcamera, software ISP) |
+| Flash | Torch from the Quick Settings tile with AOSP's strength slider (long-press), and camera flash |
+| Sensors | Accelerometer, gyroscope, magnetometer, barometer, light, proximity |
+| USB / ADB | Works; USB debugging is off until enabled in Developer options |
 | Battery, charging | Works |
-| CPU and GPU frequency scaling | Works (CPU to 2.4576 GHz, GPU to 710 MHz) |
+| CPU, GPU and memory scaling | CPU to 2.4576 GHz, GPU to 710 MHz, DDR follows CPU load |
+| Swap | 3 GB zram |
 | Recovery | LineageOS recovery; ADB sideload works |
-| Sound card | ADSP, SLIMbus and WCD934x come up; loudspeaker plays via ALSA (`tinyplay`) |
 
 ## What does not work yet
 
 | Area | State |
 |---|---|
-| Audio in Android | No audio HAL wired to the new sound card yet |
-| Mobile network / calls | Modem crash-loops; RIL never registers |
-| Camera | All three cameras enumerate (libcamera, software ISP), preview fails |
-| Fingerprint | Not working |
-| Sensors | No sensors HAL |
-| Smoothness | Notification shade drops many frames at native resolution |
+| SELinux | Permissive (policy for the new HALs is not written yet) |
+| Fingerprint | Not working (the stock HAL needs Qualcomm's secure environment) |
+| GPS | No GNSS HAL |
+| Camera quality | Software ISP: exposure can oscillate; the 16 MP main rear camera (imx351) is not selectable in the camera app |
 | Vulkan | None (Turnip needs a6xx+; the proprietary KGSL route is still WIP) |
 
 ## Building
@@ -65,7 +70,7 @@ m bacon
 
 The kernel is the Android Common Kernel `android17-6.18` (Linux 6.18.32),
 which the manifest checks out at commit `7626905e035e` into `kernel/lge/joan`,
-plus the 55 joan patches in `patches/kernel/lge/joan/`: ShapeShifter499's
+plus the 80 joan patches in `patches/kernel/lge/joan/`: ShapeShifter499's
 mainline V30 port, squashed per subsystem, and the backports and fixes this
 port needed. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-23.2-*-UNOFFICIAL-joan.zip`,
 together with `boot.img` and `recovery.img`.
@@ -90,8 +95,10 @@ anything. They hold your IMEI and calibration.
 ## Debugging
 
 - Builds are userdebug with SELinux permissive while the port is in bring-up.
-- `androidboot.joan.bootlog=1` on the kernel command line saves dmesg and
-  logcat of each boot to `/cache/joan/`.
+- Release builds keep no logs. Build with `JOAN_DEBUG=true` in the
+  environment for a development build: it turns adb on at boot and saves
+  the kernel log, logcat and pstore of every boot under
+  `/data/local/tmp/joan/` (readable from recovery).
 - If you put your ADB public key in `device/lge/joan/adb_keys` before
   building (it is gitignored), recovery and Android trust your machine
   without tapping Allow, even after a data wipe.

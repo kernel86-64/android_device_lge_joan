@@ -3,12 +3,17 @@
 # A late manual ADSP restart plus WLAN reprobe has produced working scans;
 # this boot sequence still needs cold-boot validation on joan.
 
-D=/data/local/tmp/joan/$(cat /proc/sys/kernel/random/boot_id | cut -c1-8)
-mkdir -p "$D"
-chmod 755 /data/local/tmp/joan "$D"
-exec >>"$D/rprocs.log" 2>&1
-chmod 644 "$D/rprocs.log"
-set -x
+# Development builds (androidboot.joan.bootlog=1) trace this script.
+if [ "$(getprop ro.boot.joan.bootlog)" = 1 ]; then
+	D=/data/local/tmp/joan/$(cat /proc/sys/kernel/random/boot_id | cut -c1-8)
+	mkdir -p "$D"
+	chmod 755 /data/local/tmp/joan "$D"
+	exec >>"$D/rprocs.log" 2>&1
+	chmod 644 "$D/rprocs.log"
+	set -x
+else
+	exec >/dev/null 2>&1
+fi
 
 up() { cut -d' ' -f1 /proc/uptime; }
 load() { timeout -k 2 30 /vendor/bin/modprobe -d /vendor/lib/modules "$1"; }

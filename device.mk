@@ -61,7 +61,11 @@ PRODUCT_ADB_KEYS := $(LOCAL_PATH)/adb_keys
 PRODUCT_COPY_FILES += $(LOCAL_PATH)/adb_keys:$(TARGET_COPY_OUT_RAMDISK)/adb_keys
 # adb only (no MTP) while bringing up: MTP's function is served from
 # system_server, and the gadget cannot start until every function is ready.
+# Development builds (JOAN_DEBUG=true) enable adb at boot; release builds
+# leave USB debugging off until it is turned on in Developer options.
+ifeq ($(JOAN_DEBUG),true)
 PRODUCT_SYSTEM_DEFAULT_PROPERTIES += persist.sys.usb.config=adb
+endif
 endif
 
 # Dalvik heap (4 GB RAM); without it ART's 16 MB default makes
