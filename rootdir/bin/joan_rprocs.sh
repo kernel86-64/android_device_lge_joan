@@ -126,11 +126,19 @@ start_adsp_clients() {
 		timeout -k 2 30 /system/bin/sh -c 'echo start > "$1/state"' sh "$ADSP" || return 1
 	fi
 	wait_running "$ADSP" 30 || return 1
-	start_wlan || echo "WLAN initialization failed; continuing with independent audio probe"
-	# A failed WLAN restart can leave ADSP offline. Do not send new SLIMbus
-	# requests until its shared remote processor is running again.
-	wait_running "$ADSP" 60 || return 1
-	load slim-qcom-ngd-ctrl
+	# Audio first: the SLIMbus NGD controller feeds the WCD934x codec and
+	# the sound card cannot bind without it. Do this before any WLAN
+	# recovery, which deliberately crashes and restarts the ADSP.
+	load slim-qcom-ngd-ctrl || echo "SLIMbus/audio did not come up; see dmesg"
+
+	# WLAN recovery is opt-in while the 24.0 Wi-Fi bring-up is broken: its
+	# ADSP crash/restart cycle takes minutes and disrupts audio and the modem.
+	if [ "$(getprop persist.vendor.joan.wlan_recovery)" = 1 ]; then
+		start_wlan || echo "WLAN initialization failed"
+		wait_running "$ADSP" 60 || return 1
+	else
+		load ath10k_snoc || echo "WLAN driver did not load"
+	fi
 }
 
 start_modem &
