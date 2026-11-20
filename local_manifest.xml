@@ -2,16 +2,15 @@
 <!-- LG V30 (joan) on LineageOS 24.0 with a mainline-based 6.18 kernel.
      Copy into .repo/local_manifests/ of a lineage-24.0 tree, repo sync, then
      run device/lge/joan/apply-patches.sh (it also applies the kernel series).
-     This is a convenience copy; the canonical file lives in
-     android_local_manifest_joan on branch lineage-24.0. -->
+     This is the canonical local manifest. -->
 <manifest>
-  <remote name="codeberg-scada" fetch="https://codeberg.org/scada" />
+  <remote name="github-kernel86-64" fetch="https://github.com/kernel86-64" />
   <remote name="ack" fetch="https://android.googlesource.com" />
 
   <project path="device/lge/joan" name="android_device_lge_joan"
-           remote="codeberg-scada" revision="lineage-24.0" />
+           remote="github-kernel86-64" revision="lineage-24.0" />
   <project path="vendor/lge/joan" name="proprietary_vendor_lge_joan"
-           remote="codeberg-scada" revision="lineage-24.0" />
+           remote="github-kernel86-64" revision="lineage-24.0" />
 
   <!-- ACK android17-6.18 (Linux 6.18.32); the joan patches live in
        device/lge/joan/patches/kernel/lge/joan. -->

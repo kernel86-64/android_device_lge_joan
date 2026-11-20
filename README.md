@@ -1,31 +1,28 @@
 # LineageOS 24.0 (Android 17) for the LG V30 (joan) on a mainline kernel
 
 An unofficial LineageOS 24.0 port for the LG V30 that runs on a mainline-based
-**Linux 6.18** kernel instead of LG's 4.4 vendor kernel. Graphics, Wi-Fi,
-Bluetooth and the rest use open drivers (Mesa freedreno, ath10k, btqca, ...)
-rather than the old Qualcomm/LG HALs.
+**Linux 6.18** kernel instead of LG's 4.4 vendor kernel. Graphics, Bluetooth
+and the rest use open drivers (Mesa freedreno, btqca, ...) rather than the old
+Qualcomm/LG HALs.
 
-> **Status: early.** The hardware support below was brought up on LineageOS
-> 23.2 (Android 16); this tree is the port of that device tree to LineageOS
-> 24.0 (Android 17) and is still being validated. On 23.2 it boots to a usable
-> Android 16 and most hardware works,
-> including mobile data, Android audio, the cameras and the sensors. SELinux
-> is still permissive and some features are missing (see below). Treat it
-> as a testing build, not a daily driver.
+> **Status: early.** This tree is the port of the LineageOS 23.2 joan device
+> tree to LineageOS 24.0 (Android 17). It boots to a usable Android 17 and
+> most hardware works, but the port is still being validated: **Wi-Fi and the
+> cellular modem/mobile network do not work on 24.0** (both worked on 23.2).
+> SELinux is still permissive and some features are missing (see below).
+> Treat it as a testing build, not a daily driver.
 
-Tested only on the **US998** (V30+, 128 GB). Other variants share the
-hardware, but nobody has tried them.
+Tested only on the **H930DS**. Other variants share the hardware, but nobody
+has tried them.
 
 ## What works
 
 | Area | State |
 |---|---|
-| Boot to Android 16 | Works |
+| Boot to Android 17 | Works |
 | Display (1440x2880, 60 Hz) | Works |
 | GPU | OpenGL ES 3.1 via Mesa freedreno (no Vulkan on A540) |
 | Touch, buttons | Works, including after screen off/on |
-| Mobile network | LTE data and registration work (tested on one carrier) |
-| Wi-Fi | Scans and connects (ath10k, no vendor HAL) |
 | Bluetooth | Works (btqca/hci_uart) |
 | Audio | Loudspeaker through Android's audio HAL |
 | Quad DAC | ES9218P with digital filter, headphone type and analog volume controls, a Quad DAC tile and a 24-bit link (headphone output not yet tested by ear) |
@@ -42,6 +39,8 @@ hardware, but nobody has tried them.
 
 | Area | State |
 |---|---|
+| Wi-Fi | Not working on 24.0 (ath10k worked on 23.2) |
+| Cellular modem / mobile network | Not working on 24.0: the modem does not come up, so no calls or data (worked on 23.2) |
 | SELinux | Permissive (policy for the new HALs is not written yet) |
 | Fingerprint | Not working (the stock HAL needs Qualcomm's secure environment) |
 | GPS | No GNSS HAL |
@@ -58,7 +57,7 @@ mkdir lineage && cd lineage
 repo init -u https://github.com/LineageOS/android.git -b lineage-24.0 --git-lfs
 mkdir -p .repo/local_manifests
 curl -o .repo/local_manifests/joan.xml \
-  https://codeberg.org/scada/android_local_manifest_joan/raw/branch/lineage-24.0/joan.xml
+  https://raw.githubusercontent.com/kernel86-64/android_device_lge_joan/lineage-24.0/local_manifest.xml
 repo sync -c -j8
 
 # The joan kernel patches on top of ACK, plus a few fixes outside the
@@ -110,9 +109,9 @@ anything. They hold your IMEI and calibration.
 
 | Path | Repository |
 |---|---|
-| `device/lge/joan` | [android_device_lge_joan](https://codeberg.org/scada/android_device_lge_joan) |
+| `device/lge/joan` | [android_device_lge_joan](https://github.com/kernel86-64/android_device_lge_joan) |
 | `kernel/lge/joan` | ACK [kernel/common](https://android.googlesource.com/kernel/common) at `7626905e035e` + `patches/kernel/lge/joan/` |
-| `vendor/lge/joan` | [proprietary_vendor_lge_joan](https://codeberg.org/scada/proprietary_vendor_lge_joan) |
+| `vendor/lge/joan` | [proprietary_vendor_lge_joan](https://github.com/kernel86-64/proprietary_vendor_lge_joan) |
 | libcamera prebuilts | built from [libcamera_joan](https://codeberg.org/scada/libcamera_joan), branch `joan-android` |
 | KGSL (experimental) | [kgsl_joan](https://codeberg.org/scada/kgsl_joan), branch `joan-6.18`: Qualcomm's open KGSL ported to the A540 on 6.18 |
 
