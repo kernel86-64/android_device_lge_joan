@@ -1,0 +1,42 @@
+From 0a0b0cee2c201601994a4c3415bcf1a6f0edefda Mon Sep 17 00:00:00 2001
+From: Lance <Gero3977@gmail.com>
+Date: Wed, 4 Nov 2026 05:21:02 -0800
+Subject: [PATCH 08/22] drm/panel: lg-sw43402: don't fail brightness writes
+ while the panel is off
+
+With the panel unprepared there is no DSI link, so the WRDISBV write
+fails and sysfs returns -EINVAL, although the backlight core has already
+kept the value. systemd-backlight then reports its restore as failed
+whenever the screen is off, and any brightness tool sees a spurious
+error. drm_panel_enable() calls backlight_enable(), which sends the
+stored level, so there is nothing to do until then.
+
+Signed-off-by: Lance <Gero3977@gmail.com>
+Assisted-by: Claude-Code:claude-opus-5-5
+---
+ drivers/gpu/drm/panel/panel-lg-sw43402.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/gpu/drm/panel/panel-lg-sw43402.c b/drivers/gpu/drm/panel/panel-lg-sw43402.c
+index 1cc6780d3..a2b56ad13 100644
+--- a/drivers/gpu/drm/panel/panel-lg-sw43402.c
++++ b/drivers/gpu/drm/panel/panel-lg-sw43402.c
+@@ -309,10 +309,15 @@ static const u8 sw43402_blmap[SW43402_BLMAP_LEN] = {
+ static int sw43402_backlight_update_status(struct backlight_device *bl)
+ {
+ 	struct mipi_dsi_device *dsi = bl_get_data(bl);
++	struct sw43402_panel *ctx = mipi_dsi_get_drvdata(dsi);
+ 	unsigned int brightness = backlight_get_brightness(bl);
+ 	u8 dbv;
+ 	int ret;
+ 
++	/* No link yet; drm_panel_enable() sends the stored level */
++	if (!ctx->base.prepared)
++		return 0;
++
+ 	if (!brightness)
+ 		dbv = SW43402_DBV_OFF;
+ 	else
+-- 
+2.56.1
+

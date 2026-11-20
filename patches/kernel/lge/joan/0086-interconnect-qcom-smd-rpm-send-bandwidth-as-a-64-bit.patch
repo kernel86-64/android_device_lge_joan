@@ -1,0 +1,80 @@
+From 6c0314ce5d133b10b8efa2e2e2133b29fc6643f9 Mon Sep 17 00:00:00 2001
+From: Lance <Gero3977@gmail.com>
+Date: Wed, 4 Nov 2026 03:08:47 -0800
+Subject: [PATCH 06/22] interconnect: qcom: smd-rpm: send bandwidth as a 64-bit
+ value
+
+Bandwidth votes reach qcom_icc_rpm_smd_send() as a u64 in bytes per
+second, but the argument and the request are 32 bits wide, so anything
+above 4.29 GB/s wraps. On MSM8998 slv-ebi is owned by the RPM, so DDR's
+vote is one of the values affected: the 1804 MHz step's 13.76 GB/s
+arrived as 0.88 GB/s, and 1555 MHz's 11.86 GB/s as 3.27 GB/s, right
+next to a correct bus clock rate.
+
+This is what hung the SoC on the way down from 1804 MHz: with the value
+sent whole, 30 of 30 load-and-drop cycles survived on an LG V30, with
+latency confirming each step (146 ns at 1804 MHz, 155 ns at 1555 MHz,
+347 ns at 412 MHz). The same step had hung it on the first attempt.
+
+Always send 8 bytes. Mixing sizes does not work: with 4-byte requests
+for the values that fit, DDR stayed at its top step whatever was voted,
+as if only the low word of a 64-bit value had changed.
+
+Prior art and credits: LG's msm8998 kernel sends this key with
+sizeof(uint64_t) in msm_bus_rpm_req() and send_rpm_msg(). The difference
+was spotted by Gemini 4 Argon through the Antigravity CLI while comparing
+the two drivers, then confirmed against both sources and on hardware.
+
+Signed-off-by: Lance <Gero3977@gmail.com>
+Assisted-by: Claude-Code:claude-opus-5-5
+Assisted-by: Antigravity:gemini-4-argon-high
+---
+ drivers/interconnect/qcom/icc-rpm.h | 2 +-
+ drivers/interconnect/qcom/smd-rpm.c | 8 ++++----
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/interconnect/qcom/icc-rpm.h b/drivers/interconnect/qcom/icc-rpm.h
+index f4883d43e..94fcae403 100644
+--- a/drivers/interconnect/qcom/icc-rpm.h
++++ b/drivers/interconnect/qcom/icc-rpm.h
+@@ -164,7 +164,7 @@ int qnoc_probe(struct platform_device *pdev);
+ void qnoc_remove(struct platform_device *pdev);
+ 
+ bool qcom_icc_rpm_smd_available(void);
+-int qcom_icc_rpm_smd_send(int ctx, int rsc_type, int id, u32 val);
++int qcom_icc_rpm_smd_send(int ctx, int rsc_type, int id, u64 val);
+ int qcom_icc_rpm_set_bus_rate(const struct rpm_clk_resource *clk, int ctx, u32 rate);
+ 
+ #endif
+diff --git a/drivers/interconnect/qcom/smd-rpm.c b/drivers/interconnect/qcom/smd-rpm.c
+index 8316c87a2..39831fcf1 100644
+--- a/drivers/interconnect/qcom/smd-rpm.c
++++ b/drivers/interconnect/qcom/smd-rpm.c
+@@ -21,7 +21,7 @@ static struct qcom_smd_rpm *icc_smd_rpm;
+ struct icc_rpm_smd_req {
+ 	__le32 key;
+ 	__le32 nbytes;
+-	__le32 value;
++	__le64 value;
+ };
+ 
+ bool qcom_icc_rpm_smd_available(void)
+@@ -30,12 +30,12 @@ bool qcom_icc_rpm_smd_available(void)
+ }
+ EXPORT_SYMBOL_GPL(qcom_icc_rpm_smd_available);
+ 
+-int qcom_icc_rpm_smd_send(int ctx, int rsc_type, int id, u32 val)
++int qcom_icc_rpm_smd_send(int ctx, int rsc_type, int id, u64 val)
+ {
+ 	struct icc_rpm_smd_req req = {
+ 		.key = cpu_to_le32(RPM_KEY_BW),
+-		.nbytes = cpu_to_le32(sizeof(u32)),
+-		.value = cpu_to_le32(val),
++		.nbytes = cpu_to_le32(sizeof(u64)),
++		.value = cpu_to_le64(val),
+ 	};
+ 
+ 	return qcom_rpm_smd_write(icc_smd_rpm, ctx, rsc_type, id, &req,
+-- 
+2.56.1
+

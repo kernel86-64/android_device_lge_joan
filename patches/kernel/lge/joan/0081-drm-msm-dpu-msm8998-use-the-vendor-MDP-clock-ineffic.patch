@@ -1,0 +1,42 @@
+From 67f25757e4407e58ab56654782c74b98d48ae545 Mon Sep 17 00:00:00 2001
+From: Lance <Gero3977@gmail.com>
+Date: Mon, 2 Nov 2026 23:34:22 -0800
+Subject: [PATCH 01/22] drm/msm/dpu: msm8998: use the vendor MDP clock
+ inefficiency factor
+
+The MSM8998 catalog asks for twice the pixel rate when it sizes the MDP
+core clock (clk_inefficiency_factor = 200). For joan's 1440x2880 60 Hz
+command-mode panel that is 2916 * 1440 * 60 * 2 = 504 MHz, so the core
+clock always sat at its 412.5 MHz ceiling, even with one full-screen
+plane. The vendor MDSS driver for this SoC uses a 1.05 clock factor
+(qcom,mdss-clk-factor = <105 100> in LG's msm8998-mdss.dtsi), and sizes
+per layer mixer on top of that, which would ask for about 132 MHz here.
+
+Use the vendor factor. The full-width calculation stays, so joan now
+asks for 265 MHz and runs at the 275 MHz OPP, still about twice what the
+vendor driver would pick. On joan, the core clock forced to 200, 275 and
+330 MHz through core_perf's fixed mode showed no underruns during video
+playback.
+
+Signed-off-by: Lance <Gero3977@gmail.com>
+Assisted-by: Claude-Code:claude-opus-5-5
+---
+ drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_3_0_msm8998.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_3_0_msm8998.h b/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_3_0_msm8998.h
+index b1b03d8b3..f09650b2a 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_3_0_msm8998.h
++++ b/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_3_0_msm8998.h
+@@ -277,7 +277,7 @@ static const struct dpu_perf_cfg msm8998_perf_data = {
+ 		{.rd_enable = 1, .wr_enable = 1},
+ 		{.rd_enable = 1, .wr_enable = 0}
+ 	},
+-	.clk_inefficiency_factor = 200,
++	.clk_inefficiency_factor = 105,
+ 	.bw_inefficiency_factor = 120,
+ };
+ 
+-- 
+2.56.1
+

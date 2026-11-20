@@ -1,0 +1,85 @@
+From 6e9db5e719f07c65611bc65d6f2d631a24e1c85b Mon Sep 17 00:00:00 2001
+From: Lance <Gero3977@gmail.com>
+Date: Wed, 4 Nov 2026 02:40:58 -0800
+Subject: [PATCH 05/22] usb: typec: qcom-pmic-typec: notice a partner attached
+ before toggling
+
+The PMI8998 port state machine runs from power-on, so a cable attached
+at boot is already Attached when the driver starts. It raises no
+type-c-change interrupt for that, and the Disabled write in
+start_toggling() is undone immediately after, which did not produce one
+either. TCPM therefore stayed in TOGGLING with the cable plugged in: no
+data role was set, and no detach could be reported on the first unplug.
+The UDC stayed "configured" with its 2.5 GB/s interconnect vote holding
+DDR up, while a later plug and unplug worked normally.
+
+Unlike TCPCI's look-for-connection command or FUSB302's hardware
+toggling, nothing here goes looking for a partner, so the driver has to
+read the state itself. Report a CC change when the debounce ends after
+start_toggling(), and likewise for an interrupt dropped during the
+window, so TCPM reads the settled state through get_cc().
+
+Prior art and credits: the same step in LG's msm8998 kernel, where
+smb2_determine_initial_status() in qpnp-smb2.c calls the Type-C change
+handler by hand at probe.
+
+Signed-off-by: Lance <Gero3977@gmail.com>
+Assisted-by: Claude-Code:claude-opus-5-5
+---
+ .../usb/typec/tcpm/qcom/qcom_pmic_typec_pmi8998.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_pmi8998.c b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_pmi8998.c
+index 8bbdf82e0..19f6134f5 100644
+--- a/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_pmi8998.c
++++ b/drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_pmi8998.c
+@@ -98,6 +98,7 @@ struct pmic_typec_pmi8998 {
+ 	struct mutex			vbus_lock;	/* VBUS state serialization */
+ 
+ 	bool				debouncing_cc;
++	bool				cc_change_pending;
+ 	struct delayed_work		cc_debounce_dwork;
+ 
+ 	spinlock_t			lock;		/* Register atomicity */
+@@ -125,10 +126,16 @@ static void pmi8998_cc_debounce(struct work_struct *work)
+ 	struct pmic_typec_pmi8998 *port =
+ 		container_of(work, struct pmic_typec_pmi8998, cc_debounce_dwork.work);
+ 	unsigned long flags;
++	bool cc_change;
+ 
+ 	spin_lock_irqsave(&port->lock, flags);
+ 	port->debouncing_cc = false;
++	cc_change = port->cc_change_pending;
++	port->cc_change_pending = false;
+ 	spin_unlock_irqrestore(&port->lock, flags);
++
++	if (cc_change)
++		tcpm_cc_change(port->tcpm_port);
+ }
+ 
+ /* Ignore CC changes for a moment after reprogramming the port. */
+@@ -151,6 +158,8 @@ static irqreturn_t pmi8998_typec_isr(int irq, void *dev_id)
+ 
+ 	spin_lock_irqsave(&port->lock, flags);
+ 	cc_change = !port->debouncing_cc;
++	if (!cc_change)
++		port->cc_change_pending = true;
+ 	spin_unlock_irqrestore(&port->lock, flags);
+ 
+ 	tcpm_vbus_change(port->tcpm_port);
+@@ -404,6 +413,12 @@ static int pmi8998_start_toggling(struct tcpc_dev *tcpc,
+ 
+ 	pmi8998_set_cc_debounce(port);
+ 
++	/*
++	 * A partner that is already attached raises no interrupt, so read the
++	 * state back once the debounce ends, as LG's kernel does at probe.
++	 */
++	port->cc_change_pending = true;
++
+ 	/* Force the state machine through Disabled so it toggles again */
+ 	ret = pmi8998_update(port, TYPE_C_INTRPT_ENB_SOFTWARE_CTRL_REG,
+ 			     TYPEC_POWER_ROLE_CMD_MASK, TYPEC_DISABLE_CMD);
+-- 
+2.56.1
+

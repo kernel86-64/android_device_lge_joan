@@ -1,0 +1,62 @@
+From 2c32e6d18f2d525cf932825a3d09f21b81e21a2f Mon Sep 17 00:00:00 2001
+From: Lance <Gero3977@gmail.com>
+Date: Fri, 6 Nov 2026 06:25:32 -0800
+Subject: [PATCH 12/22] ASoC: codecs: wcd934x: ignore repeated MBHC micbias
+ requests
+
+wcd934x_mbhc_request_micbias() takes an MCLK vote on MICB_ENABLE and
+drops one on MICB_DISABLE, but MBHC does not pair those calls. An unplug
+while plug detection is running disables the micbias from both the
+detection work and wcd_mbhc_report_plug_removal(). The second call drops
+a vote nobody holds, which logs "ln_bb_clk1 already disabled" and takes
+sysclk_users to -1.
+
+That count then stays wrong. wcd934x_enable_ana_bias_and_sysclk() only
+programs the hardware when ++sysclk_users == 1, so every later stream
+skips the analog bias and MCLK setup. On the LG V30 the earpiece and WCD
+headphone output then went silent with the DAPM path fully on, the PCM
+running and no over-current interrupts, until the next reboot.
+
+Ignore a request that repeats the current state, as the LG driver does.
+
+Prior art and credits: micb_ena_status in tavil_mbhc_request_micbias(),
+LG msm8998 kernel, sound/soc/codecs/wcd934x/wcd934x-mbhc.c. The Qualcomm
+resource manager there also refuses to drop MCLK with no users.
+
+TEST ONLY until the silence is shown gone on hardware.
+
+Signed-off-by: Lance <Gero3977@gmail.com>
+Assisted-by: Claude-Code:claude-opus-5-5
+---
+ sound/soc/codecs/wcd934x.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/sound/soc/codecs/wcd934x.c b/sound/soc/codecs/wcd934x.c
+index 69f0ae2ca..ee58915bc 100644
+--- a/sound/soc/codecs/wcd934x.c
++++ b/sound/soc/codecs/wcd934x.c
+@@ -545,6 +545,7 @@ struct wcd934x_codec {
+ 	int dmic_sample_rate;
+ 	int comp_enabled[COMPANDER_MAX];
+ 	int sysclk_users;
++	bool mbhc_micb_on;
+ 	struct mutex sysclk_mutex;
+ 	/* mbhc module */
+ 	struct wcd_mbhc *mbhc;
+@@ -2481,6 +2482,13 @@ static int wcd934x_mbhc_request_micbias(struct snd_soc_component *component,
+ 	struct wcd934x_codec *wcd = dev_get_drvdata(component->dev);
+ 	int ret;
+ 
++	/* MBHC can repeat a request; only a real change moves the MCLK vote */
++	if (req == MICB_ENABLE || req == MICB_DISABLE) {
++		if (wcd->mbhc_micb_on == (req == MICB_ENABLE))
++			return 0;
++		wcd->mbhc_micb_on = req == MICB_ENABLE;
++	}
++
+ 	if (req == MICB_ENABLE)
+ 		__wcd934x_cdc_mclk_enable(wcd, true);
+ 
+-- 
+2.56.1
+

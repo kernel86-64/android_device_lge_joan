@@ -1,0 +1,66 @@
+From d3f3f57d4402cb2ed7ff974d47b51e9ff2885998 Mon Sep 17 00:00:00 2001
+From: Lance <Gero3977@gmail.com>
+Date: Wed, 4 Nov 2026 11:13:40 -0800
+Subject: [PATCH 09/22] Bluetooth: hci_qca: don't mix extended advertising with
+ legacy scanning
+
+WCN3990 firmware claims extended scanning but answers it with Unknown HCI
+Command, so 31fb4ff27419 ("Bluetooth: hci_qca: mark extended scanning
+broken on WCN399x") moved scanning to the legacy commands. Extended
+advertising stayed on, though, and init sends LE Clear Advertising Sets
+and LE Set Extended Advertising Enable. A controller that has seen an
+extended advertising command must reject legacy ones until it is reset,
+so discovery fails with no way out:
+
+  Bluetooth: hci0: Opcode 0x200b failed: -16
+
+Even LE Set Scan Enable with scanning off returned Command Disallowed,
+which rules out a scan left running.
+
+Treat a controller as not capable of extended advertising whenever
+extended scanning is marked broken, and mark extended create connection
+broken on this chip as well, so it only ever sees legacy LE commands.
+
+Prior art and credits: the same fix was proposed for Barrot 33fa:0010
+controllers by Ernesto Salvetti on bluetooth-next, which this follows.
+
+Signed-off-by: Lance <Gero3977@gmail.com>
+Assisted-by: Claude-Code:claude-opus-5-5
+---
+ drivers/bluetooth/hci_qca.c      | 1 +
+ include/net/bluetooth/hci_core.h | 7 ++++++-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/bluetooth/hci_qca.c b/drivers/bluetooth/hci_qca.c
+index c19d2e12f..14e97a662 100644
+--- a/drivers/bluetooth/hci_qca.c
++++ b/drivers/bluetooth/hci_qca.c
+@@ -2079,6 +2079,7 @@ static int qca_setup(struct hci_uart *hu)
+ 			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER);
+ 			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_LE_SET_DEFAULT_PHY);
+ 			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_SCAN);
++			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_CREATE_CONN);
+ 		}
+ 
+ 		hci_set_aosp_capable(hdev);
+diff --git a/include/net/bluetooth/hci_core.h b/include/net/bluetooth/hci_core.h
+index 45ba40f17..37385b896 100644
+--- a/include/net/bluetooth/hci_core.h
++++ b/include/net/bluetooth/hci_core.h
+@@ -2030,7 +2030,12 @@ void hci_conn_del_sysfs(struct hci_conn *conn);
+ #define use_ext_conn(dev) (((dev)->commands[37] & 0x80) && \
+ 	!hci_test_quirk((dev), HCI_QUIRK_BROKEN_EXT_CREATE_CONN))
+ /* Extended advertising support */
+-#define ext_adv_capable(dev) (((dev)->le_features[1] & HCI_LE_EXT_ADV))
++/*
++ * A controller that has seen an extended advertising command rejects legacy
++ * LE commands until it is reset, so scanning and advertising must match.
++ */
++#define ext_adv_capable(dev) (((dev)->le_features[1] & HCI_LE_EXT_ADV) && \
++			      !hci_test_quirk((dev), HCI_QUIRK_BROKEN_EXT_SCAN))
+ 
+ /* Maximum advertising length */
+ #define max_adv_len(dev) \
+-- 
+2.56.1
+

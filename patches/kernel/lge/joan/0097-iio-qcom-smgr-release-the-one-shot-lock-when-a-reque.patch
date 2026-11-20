@@ -1,0 +1,40 @@
+From b642d7ea2555dc7defce8adf6c05af2a01237e87 Mon Sep 17 00:00:00 2001
+From: Lance <Gero3977@gmail.com>
+Date: Fri, 6 Nov 2026 12:10:46 -0800
+Subject: [PATCH 17/22] iio: qcom-smgr: release the one-shot lock when a
+ request fails
+
+qcom_smgr_iio_read_raw() takes oneshot_lock, then returned without
+releasing it if the buffering request failed. Every later read of that
+sensor then blocked in uninterruptible sleep until reboot.
+
+Seen on the bench US998: a buffering request failed with -EINVAL, and a read
+of in_anglvel_x_raw stayed in D state in this function and could not be killed.
+What made that request fail is not known yet.
+
+Fixes: dc9c6692dbfb ("iio: qcom-smgr: serialize one-shot reads")
+Signed-off-by: Lance <Gero3977@gmail.com>
+Assisted-by: Claude-Code:claude-opus-5-5
+---
+ drivers/iio/common/qcom_smgr/qcom_smgr.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/iio/common/qcom_smgr/qcom_smgr.c b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+index 913ac165c..3d622e80b 100644
+--- a/drivers/iio/common/qcom_smgr/qcom_smgr.c
++++ b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+@@ -406,8 +406,10 @@ static int qcom_smgr_iio_read_raw(struct iio_dev *iio_dev,
+ 			mutex_lock(&sensor->oneshot_lock);
+ 			reinit_completion(&sensor->sample_ready);
+ 			ret = qcom_smgr_request_buffering(smgr, sensor, true);
+-			if (ret)
++			if (ret) {
++				mutex_unlock(&sensor->oneshot_lock);
+ 				return ret;
++			}
+ 			ret = wait_for_completion_timeout(&sensor->sample_ready,
+ 				msecs_to_jiffies(250));
+ 			qcom_smgr_request_buffering(smgr, sensor, false);
+-- 
+2.56.1
+

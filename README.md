@@ -72,9 +72,11 @@ m bacon
 
 The kernel is the Android Common Kernel `android17-6.18` (Linux 6.18.32),
 which the manifest checks out at commit `7626905e035e` into `kernel/lge/joan`,
-plus the 80 joan patches in `patches/kernel/lge/joan/`: ShapeShifter499's
+plus the 102 joan patches in `patches/kernel/lge/joan/`: ShapeShifter499's
 mainline V30 port, squashed per subsystem, and the backports and fixes this
-port needed. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`,
+port needed. The last 22 patches are fixes ported from the 7.3 joan branch:
+DDR/GPU bandwidth scaling through the OPP tables, audio jack detection,
+sensor fixes, Bluetooth advertising, panel brightness and USB typec. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`,
 together with `boot.img` and `recovery.img`.
 
 ## Installing
