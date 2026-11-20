@@ -1,11 +1,14 @@
-# LineageOS 23.2 (Android 16) for the LG V30 (joan) on a mainline kernel
+# LineageOS 24.0 (Android 17) for the LG V30 (joan) on a mainline kernel
 
-An unofficial LineageOS 23.2 port for the LG V30 that runs on a mainline-based
+An unofficial LineageOS 24.0 port for the LG V30 that runs on a mainline-based
 **Linux 6.18** kernel instead of LG's 4.4 vendor kernel. Graphics, Wi-Fi,
 Bluetooth and the rest use open drivers (Mesa freedreno, ath10k, btqca, ...)
 rather than the old Qualcomm/LG HALs.
 
-> **Status: early.** It boots to a usable Android 16 and most hardware works,
+> **Status: early.** The hardware support below was brought up on LineageOS
+> 23.2 (Android 16); this tree is the port of that device tree to LineageOS
+> 24.0 (Android 17) and is still being validated. On 23.2 it boots to a usable
+> Android 16 and most hardware works,
 > including mobile data, Android audio, the cameras and the sensors. SELinux
 > is still permissive and some features are missing (see below). Treat it
 > as a testing build, not a daily driver.
@@ -47,20 +50,20 @@ hardware, but nobody has tried them.
 
 ## Building
 
-You need a normal LineageOS 23.2 build environment
+You need a normal LineageOS 24.0 build environment
 ([LineageOS build guide](https://wiki.lineageos.org/build_guides)).
 
 ```sh
 mkdir lineage && cd lineage
-repo init -u https://github.com/LineageOS/android.git -b lineage-23.2 --git-lfs
+repo init -u https://github.com/LineageOS/android.git -b lineage-24.0 --git-lfs
 mkdir -p .repo/local_manifests
 curl -o .repo/local_manifests/joan.xml \
-  https://codeberg.org/scada/android_local_manifest_joan/raw/branch/lineage-23.2/joan.xml
+  https://codeberg.org/scada/android_local_manifest_joan/raw/branch/lineage-24.0/joan.xml
 repo sync -c -j8
 
 # The joan kernel patches on top of ACK, plus a few fixes outside the
-# device tree (recovery, USB, Wi-Fi HAL, Bluetooth, libcutils memfd, OTA
-# tooling). Re-run after every repo sync.
+# device tree (recovery, USB, Wi-Fi HAL, Bluetooth, OTA tooling). Re-run
+# after every repo sync.
 device/lge/joan/apply-patches.sh
 
 source build/envsetup.sh
@@ -72,7 +75,7 @@ The kernel is the Android Common Kernel `android17-6.18` (Linux 6.18.32),
 which the manifest checks out at commit `7626905e035e` into `kernel/lge/joan`,
 plus the 80 joan patches in `patches/kernel/lge/joan/`: ShapeShifter499's
 mainline V30 port, squashed per subsystem, and the backports and fixes this
-port needed. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-23.2-*-UNOFFICIAL-joan.zip`,
+port needed. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`,
 together with `boot.img` and `recovery.img`.
 
 ## Installing
@@ -87,7 +90,7 @@ together with `boot.img` and `recovery.img`.
 3. Boot recovery (from LineageOS 22.2: `adb reboot recovery`), choose
    **Factory reset -> Format data** (LineageOS 22.2's ICE encryption is
    not compatible), then **Apply update -> ADB sideload** and run
-   `adb sideload lineage-23.2-*-UNOFFICIAL-joan.zip`.
+   `adb sideload lineage-24.0-*-UNOFFICIAL-joan.zip`.
 
 Back up your modem, modemst1/2, fsg, fsc and persist partitions before doing
 anything. They hold your IMEI and calibration.

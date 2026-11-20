@@ -11,6 +11,10 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
 # is tested.
 WITH_SU := true
 
+# Bring-up: skip the on-device "Allow USB debugging" prompt, so adb works
+# even when the UI never comes up. This sets ro.adb.secure=0.
+WITH_ADB_INSECURE := true
+
 # Inherit some common Lineage stuff.
 $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
 

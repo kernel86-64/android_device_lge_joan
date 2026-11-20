@@ -366,8 +366,10 @@
         <item>0:2:15</item> <!-- ID0:Fingerprint:Strong -->
     </string-array>
 
-    <!-- Remote server that can provide NTP responses. -->
-    <string translatable="false" name="config_ntpServer">time.apple.com</string>
+    <!-- Remote servers that can provide NTP responses. -->
+    <string-array translatable="false" name="config_ntpServers">
+        <item>ntp://time.apple.com</item>
+    </string-array>
 
     <!-- The default journal mode to use use when Write-Ahead Logging is not active.
          Choices are: OFF, DELETE, TRUNCATE, PERSIST and MEMORY.

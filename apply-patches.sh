@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply the joan patches to the other projects of a LineageOS 23.2 tree.
+# Apply the joan patches to the other projects of a LineageOS 24.0 tree.
 # Run from the top of the tree after repo sync. Patches already applied
 # are skipped, so it is safe to run again after every sync.
 #
@@ -37,7 +37,7 @@ apply_series() {
 while IFS= read -r dir; do
     project=${dir#"$PATCHES"/}
     if [[ ! -d $TOP/$project ]]; then
-        echo "MISSING  $project (is this the top of a lineage-23.2 tree?)"
+        echo "MISSING  $project (is this the top of a lineage-24.0 tree?)"
         status=1
     elif [[ -f $dir/BASE ]]; then
         apply_series "$project"

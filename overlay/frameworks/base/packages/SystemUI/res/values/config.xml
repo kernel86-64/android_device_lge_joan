@@ -45,5 +45,7 @@
 
     <!-- The libcamera provider has no torch API yet. Use the device tile. -->
     <string name="quick_settings_tiles_default" translatable="false">internet,bt,custom(org.lineageos.settings.device.dac/.FlashlightTileService),custom(org.lineageos.settings.device.dac/.QuadDACTileService),dnd,alarm,airplane,rotation,battery,cast,screenrecord,mictoggle,cameratoggle</string>
-    <string name="quick_settings_tiles_new_default" translatable="false">internet,bt,custom(org.lineageos.settings.device.dac/.FlashlightTileService),custom(org.lineageos.settings.device.dac/.QuadDACTileService),dnd,airplane,rotation,battery,cast,screenrecord</string>
+    <!-- Same list for the split internet tile (wifi + cell instead of internet),
+         which Android 17 uses when its aconfig flag is enabled. -->
+    <string name="quick_settings_tiles_default_split" translatable="false">wifi,bt,cell,custom(org.lineageos.settings.device.dac/.FlashlightTileService),custom(org.lineageos.settings.device.dac/.QuadDACTileService),dnd,airplane,rotation,battery,cast,screenrecord</string>
 </resources>

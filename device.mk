@@ -18,7 +18,7 @@ PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
 PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
 
-# aconfig flag overrides for the bp4a release (QS flashlight strength slider)
+# aconfig flag overrides for the cp2a release (QS flashlight strength slider)
 PRODUCT_RELEASE_CONFIG_MAPS += $(LOCAL_PATH)/release/release_config_map.textproto
 
 # Sensors: the SLPI serves them through the qcom-smgr IIO driver; the
@@ -134,7 +134,7 @@ PRODUCT_VENDOR_PROPERTIES += \
 PRODUCT_VENDOR_PROPERTIES += vendor.minigbm.debug=nocompression
 
 # No ashmem driver on this kernel (ACK 6.18 only has the Rust one): use
-# memfd, see patches/system/core.
+# plain memfd. Android 17's libcutils takes sys.use_memfd=true directly.
 PRODUCT_SYSTEM_PROPERTIES += sys.use_memfd=true
 
 # No Vulkan on Adreno 5xx with Mesa (turnip is a6xx+).
@@ -334,6 +334,7 @@ PRODUCT_COPY_FILES += \
 PRODUCT_SOONG_NAMESPACES += \
     hardware/google/interfaces \
     hardware/google/pixel \
+    hardware/google/pixel/power-libperfmgr \
     hardware/lineage/interfaces/power-libperfmgr
 
 # Device Quick Settings: mainline Quad DAC and stepped torch control.

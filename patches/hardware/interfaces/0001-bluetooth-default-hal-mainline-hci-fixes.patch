@@ -5,44 +5,44 @@ stack: coordinated init deadlines and a disconnect-callback watcher fix in
 the async fd watcher.
 
 diff --git a/bluetooth/aidl/default/BluetoothHci.cpp b/bluetooth/aidl/default/BluetoothHci.cpp
-index 5ac3afef2c..bec76202db 100644
+index f644380..63a36fb 100644
 --- a/bluetooth/aidl/default/BluetoothHci.cpp
 +++ b/bluetooth/aidl/default/BluetoothHci.cpp
-@@ -164,8 +164,8 @@ void BluetoothHci::initialize(
+@@ -154,8 +154,8 @@ void BluetoothHci::initialize(const std::shared_ptr<hal::IBluetoothHciCallbacks>
  
-   if (old_state != HalState::READY) {
-     ALOGE("initialize: Unexpected State %d", static_cast<int>(old_state));
--    close();
-     cb->initializationComplete(Status::ALREADY_INITIALIZED);
-+    return;
-   }
- 
-   mCb = cb;
-@@ -177,8 +177,13 @@ void BluetoothHci::initialize(
-     ALOGI("Unable to open Linux interface, trying default path.");
-     mFd = getFdFromDevPath();
-     if (mFd < 0) {
--      mState = HalState::READY;
-+      {
-+        std::lock_guard<std::mutex> guard(mStateMutex);
-+        mState = HalState::READY;
-+      }
-+      mCb.reset();
-       cb->initializationComplete(Status::UNABLE_TO_OPEN_INTERFACE);
-+      return;
+     if (old_state != HalState::READY) {
+         ALOGE("initialize: Unexpected State %d", static_cast<int>(old_state));
+-        close();
+         cb->initializationComplete(Status::ALREADY_INITIALIZED);
++        return;
      }
-   }
  
-@@ -236,6 +241,7 @@ void BluetoothHci::close() {
-       LOG_ALWAYS_FATAL_IF(mState == HalState::INITIALIZING,
-                           "mState is INITIALIZING");
-       ALOGI("Already closed");
-+      return;
+     mCb = cb;
+@@ -167,8 +167,13 @@ void BluetoothHci::initialize(const std::shared_ptr<hal::IBluetoothHciCallbacks>
+         ALOGI("Unable to open Linux interface, trying default path.");
+         mFd = getFdFromDevPath();
+         if (mFd < 0) {
+-            mState = HalState::READY;
++            {
++                std::lock_guard<std::mutex> guard(mStateMutex);
++                mState = HalState::READY;
++            }
++            mCb.reset();
+             cb->initializationComplete(Status::UNABLE_TO_OPEN_INTERFACE);
++            return;
+         }
      }
-     mState = HalState::CLOSING;
-   }
+ 
+@@ -215,6 +220,7 @@ void BluetoothHci::close() {
+         if (mState != HalState::ONE_CLIENT) {
+             LOG_ALWAYS_FATAL_IF(mState == HalState::INITIALIZING, "mState is INITIALIZING");
+             ALOGI("Already closed");
++            return;
+         }
+         mState = HalState::CLOSING;
+     }
 diff --git a/bluetooth/aidl/default/net_bluetooth_mgmt.cpp b/bluetooth/aidl/default/net_bluetooth_mgmt.cpp
-index 6b0cd63166..c4a513082b 100644
+index 703bc0b..fb95573 100644
 --- a/bluetooth/aidl/default/net_bluetooth_mgmt.cpp
 +++ b/bluetooth/aidl/default/net_bluetooth_mgmt.cpp
 @@ -25,6 +25,7 @@
@@ -62,199 +62,205 @@ index 6b0cd63166..c4a513082b 100644
 +// Controller firmware loading can fail. Bound this wait so initialize() can
 +// report failure to the framework instead of occupying a HAL thread forever.
  int NetBluetoothMgmt::waitHciDev(int hci_interface) {
-   ALOGI("waiting for hci interface %d", hci_interface);
+     ALOGI("waiting for hci interface %d", hci_interface);
  
 @@ -97,11 +98,12 @@ int NetBluetoothMgmt::waitHciDev(int hci_interface) {
-       .hci_dev = HCI_DEV_NONE,
-       .hci_channel = HCI_CHANNEL_CONTROL,
-   };
-+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+             .hci_dev = HCI_DEV_NONE,
+             .hci_channel = HCI_CHANNEL_CONTROL,
+     };
++    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
  
-   // Open and bind a socket to the bluetooth control interface in the
-   // kernel driver, used to send control commands and receive control
-   // events.
--  int fd = socket(PF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
-+  int fd = socket(PF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BTPROTO_HCI);
-   if (fd < 0) {
-     ALOGE("unable to open raw bluetooth socket: %s", strerror(errno));
-     return -1;
-@@ -125,12 +127,18 @@ int NetBluetoothMgmt::waitHciDev(int hci_interface) {
-   }
+     // Open and bind a socket to the bluetooth control interface in the
+     // kernel driver, used to send control commands and receive control
+     // events.
+-    int fd = socket(PF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
++    int fd = socket(PF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BTPROTO_HCI);
+     if (fd < 0) {
+         ALOGE("unable to open raw bluetooth socket: %s", strerror(errno));
+         return -1;
+@@ -126,10 +128,18 @@ int NetBluetoothMgmt::waitHciDev(int hci_interface) {
  
-   // Poll the control socket waiting for the command response,
--  // and subsequent [Index Added] events. The loops continue without
--  // timeout until the selected hci interface is detected.
-+  // and subsequent [Index Added] events, using one deadline for all events.
-   pollfd = {.fd = fd, .events = POLLIN};
+     for (;;) {
+         // Poll the control socket waiting for the command response,
+-        // and subsequent [Index Added] events.
++        // and subsequent [Index Added] events, using one deadline for all
++        // events.
+         do {
++            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
++                    deadline - std::chrono::steady_clock::now()).count();
++            if (remaining <= 0) {
++                ALOGE("timed out waiting for hci interface %d", hci_interface);
++                ret = -1;
++                goto end;
++            }
+             pollfd = {.fd = fd, .events = POLLIN};
+-            ret = poll(&pollfd, 1, 500);
++            ret = poll(&pollfd, 1, static_cast<int>(remaining));
+         } while (ret == -1 && (errno == EINTR || errno == EAGAIN));
  
-   for (;;) {
--    ret = poll(&pollfd, 1, -1);
-+    auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-+        deadline - std::chrono::steady_clock::now()).count();
-+    if (remaining <= 0) {
-+      ALOGE("timed out waiting for hci interface %d", hci_interface);
-+      ret = -1;
-+      break;
-+    }
-+    ret = poll(&pollfd, 1, static_cast<int>(remaining));
+         // Poll failure, abandon.
+@@ -138,32 +148,45 @@ int NetBluetoothMgmt::waitHciDev(int hci_interface) {
+             break;
+         }
  
-     // Poll interrupted, try again.
-     if (ret == -1 && (errno == EINTR || errno == EAGAIN)) {
-@@ -143,23 +151,48 @@ int NetBluetoothMgmt::waitHciDev(int hci_interface) {
-       break;
+-        // Read Index List completes immediately, so retrying before a timeout
+-        // would spin while no controller is registered.
+-        if (ret == 0) {
+-            if (write(fd, &cmd, 6) != 6) {
+-                ALOGE("error writing mgmt command: %s", strerror(errno));
+-                goto end;
+-            }
++        // poll() only returns 0 at the deadline; the next iteration reports
++        // the timeout.
++        if (ret == 0 || (pollfd.revents & POLLIN) == 0) {
+             continue;
+         }
+ 
+-        // Spurious wakeup, try again.
+-        if ((pollfd.revents & POLLIN) == 0) {
+-            continue;
++        if (pollfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
++            ALOGE("bluetooth control socket closed or failed");
++            ret = -1;
++            break;
+         }
+ 
+         // Read the next control event.
+         struct mgmt_pkt ev{};
+         ret = read(fd, &ev, sizeof(ev));
+-        if (ret < 0) {
++        if (ret <= 0) {
+             ALOGE("error reading mgmt event: %s", strerror(errno));
++            ret = -1;
+             goto end;
+         }
++        if (ret < 6 || ev.len > ret - 6) {
++            continue;
++        }
+ 
+         if (ev.opcode == MGMT_EV_CMD_COMPLETE) {
+             // Received [Read Index List] command response.
++            if (ev.index != MGMT_INDEX_NONE || ev.len < sizeof(mgmt_ev_read_index_list)) {
++                continue;
++            }
+             struct mgmt_ev_read_index_list* data = (struct mgmt_ev_read_index_list*)ev.data;
++            if (data->opcode != MGMT_OP_READ_INDEX_LIST) {
++                continue;
++            }
++            if (data->status != 0 ||
++                data->num_controllers > (ev.len - sizeof(*data)) / sizeof(uint16_t)) {
++                ALOGE("invalid Read Index List response");
++                ret = -1;
++                goto end;
++            }
+ 
+             // Prefer the exact hci_interface
+             for (int i = 0; i < data->num_controllers; i++) {
+@@ -213,7 +236,7 @@ int NetBluetoothMgmt::openRfkill() {
+     for (;;) {
+         struct rfkill_event event{};
+         ssize_t res = read(fd, &event, sizeof(event));
+-        if (res < 0) {
++        if (res != sizeof(event)) {
+             ALOGE("error reading rfkill events: %s", strerror(errno));
+             break;
+         }
+@@ -273,7 +296,7 @@ int NetBluetoothMgmt::openHci(int hci_interface) {
      }
  
--    // Spurious wakeup, try again.
--    if (ret == 0 || (pollfd.revents & POLLIN) == 0) {
-+    if (ret == 0) {
-+      ALOGE("timed out waiting for hci interface %d", hci_interface);
-+      ret = -1;
-+      break;
-+    }
-+    if (pollfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-+      ALOGE("bluetooth control socket closed or failed");
-+      ret = -1;
-+      break;
-+    }
-+    if ((pollfd.revents & POLLIN) == 0) {
-       continue;
-     }
- 
-     // Read the next control event.
-     struct mgmt_pkt ev {};
-     ret = read(fd, &ev, sizeof(ev));
--    if (ret < 0) {
-+    if (ret <= 0) {
-       ALOGE("error reading mgmt event: %s", strerror(errno));
-+      ret = -1;
-       goto end;
-     }
-+    if (ret < 6 || ev.len > ret - 6) {
-+      continue;
-+    }
- 
-     // Received [Read Index List] command response.
-     if (ev.opcode == MGMT_EV_CMD_COMPLETE) {
-+      if (ev.index != MGMT_INDEX_NONE || ev.len < sizeof(mgmt_ev_read_index_list)) {
-+        continue;
-+      }
-       struct mgmt_ev_read_index_list* data =
-           (struct mgmt_ev_read_index_list*)ev.data;
-+      if (data->opcode != MGMT_OP_READ_INDEX_LIST) {
-+        continue;
-+      }
-+      if (data->status != 0 ||
-+          data->num_controllers > (ev.len - sizeof(*data)) / sizeof(uint16_t)) {
-+        ALOGE("invalid Read Index List response");
-+        ret = -1;
-+        goto end;
-+      }
- 
-       // Prefer the exact hci_interface
-       for (int i = 0; i < data->num_controllers; i++) {
-@@ -210,7 +243,7 @@ int NetBluetoothMgmt::openRfkill() {
-   for (;;) {
-     struct rfkill_event event {};
-     ssize_t res = read(fd, &event, sizeof(event));
--    if (res < 0) {
-+    if (res != sizeof(event)) {
-       ALOGE("error reading rfkill events: %s", strerror(errno));
-       break;
-     }
-@@ -270,7 +303,7 @@ int NetBluetoothMgmt::openHci(int hci_interface) {
-   }
- 
-   // Open the raw HCI socket.
--  int fd = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
-+  int fd = socket(AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BTPROTO_HCI);
-   if (fd < 0) {
-     ALOGE("unable to open raw bluetooth socket: %s", strerror(errno));
-     return -1;
+     // Open the raw HCI socket.
+-    int fd = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
++    int fd = socket(AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BTPROTO_HCI);
+     if (fd < 0) {
+         ALOGE("unable to open raw bluetooth socket: %s", strerror(errno));
+         return -1;
 diff --git a/bluetooth/async/async_fd_watcher.cc b/bluetooth/async/async_fd_watcher.cc
-index fb634ffe84..51d08af783 100644
+index 028ca07..d10eab5 100644
 --- a/bluetooth/async/async_fd_watcher.cc
 +++ b/bluetooth/async/async_fd_watcher.cc
 @@ -37,6 +37,12 @@ namespace android::hardware::bluetooth::async {
  
- int AsyncFdWatcher::WatchFdForNonBlockingReads(
-     int file_descriptor, const ReadCallback& on_read_fd_ready_callback) {
-+  // A callback can request stop, but cannot join its own thread. Reap that
-+  // generation before registering callbacks for the next connection.
-+  if (!running_ && thread_.joinable()) {
-+    if (std::this_thread::get_id() == thread_.get_id()) return -1;
-+    stopThread();
-+  }
-   // Add file descriptor and callback
-   {
-     std::unique_lock<std::mutex> guard(internal_mutex_);
-@@ -63,7 +69,7 @@ int AsyncFdWatcher::ConfigureTimeout(
- 
- void AsyncFdWatcher::StopWatchingFileDescriptors() { stopThread(); }
+ int AsyncFdWatcher::WatchFdForNonBlockingReads(int file_descriptor,
+                                                const ReadCallback& on_read_fd_ready_callback) {
++    // A callback can request stop, but cannot join its own thread. Reap that
++    // generation before registering callbacks for the next connection.
++    if (!running_ && thread_.joinable()) {
++        if (std::this_thread::get_id() == thread_.get_id()) return -1;
++        stopThread();
++    }
+     // Add file descriptor and callback
+     {
+         std::unique_lock<std::mutex> guard(internal_mutex_);
+@@ -64,7 +70,9 @@ void AsyncFdWatcher::StopWatchingFileDescriptors() {
+     stopThread();
+ }
  
 -AsyncFdWatcher::~AsyncFdWatcher() {}
-+AsyncFdWatcher::~AsyncFdWatcher() { stopThread(); }
++AsyncFdWatcher::~AsyncFdWatcher() {
++    stopThread();
++}
  
  // Make sure to call this with at least one file descriptor ready to be
  // watched upon or the thread routine will return immediately
-@@ -72,7 +78,10 @@ int AsyncFdWatcher::tryStartThread() {
+@@ -73,7 +81,10 @@ int AsyncFdWatcher::tryStartThread() {
  
-   // Set up the communication channel
-   int pipe_fds[2];
--  if (pipe2(pipe_fds, O_NONBLOCK)) return -1;
-+  if (pipe2(pipe_fds, O_NONBLOCK)) {
-+    running_ = false;
-+    return -1;
-+  }
+     // Set up the communication channel
+     int pipe_fds[2];
+-    if (pipe2(pipe_fds, O_NONBLOCK)) return -1;
++    if (pipe2(pipe_fds, O_NONBLOCK)) {
++        running_ = false;
++        return -1;
++    }
  
-   notification_listen_fd_ = pipe_fds[0];
-   notification_write_fd_ = pipe_fds[1];
-@@ -84,12 +93,12 @@ int AsyncFdWatcher::tryStartThread() {
+     notification_listen_fd_ = pipe_fds[0];
+     notification_write_fd_ = pipe_fds[1];
+@@ -85,12 +96,12 @@ int AsyncFdWatcher::tryStartThread() {
  }
  
  int AsyncFdWatcher::stopThread() {
--  if (!std::atomic_exchange(&running_, false)) return 0;
-+  if (std::atomic_exchange(&running_, false)) notifyThread();
+-    if (!std::atomic_exchange(&running_, false)) return 0;
++    if (std::atomic_exchange(&running_, false)) notifyThread();
  
--  notifyThread();
--  if (std::this_thread::get_id() != thread_.get_id()) {
--    thread_.join();
--  }
-+  // Read callbacks execute under internal_mutex_. Only request shutdown here;
-+  // the owning thread will join and clean up, even though running_ is false.
-+  if (std::this_thread::get_id() == thread_.get_id()) return 0;
-+  if (thread_.joinable()) thread_.join();
+-    notifyThread();
+-    if (std::this_thread::get_id() != thread_.get_id()) {
+-        thread_.join();
+-    }
++    // Read callbacks execute under internal_mutex_. Only request shutdown here;
++    // the owning thread will join and clean up, even though running_ is false.
++    if (std::this_thread::get_id() == thread_.get_id()) return 0;
++    if (thread_.joinable()) thread_.join();
  
-   {
-     std::unique_lock<std::mutex> guard(internal_mutex_);
-@@ -101,13 +110,16 @@ int AsyncFdWatcher::stopThread() {
-     timeout_cb_ = nullptr;
-   }
+     {
+         std::unique_lock<std::mutex> guard(internal_mutex_);
+@@ -102,13 +113,16 @@ int AsyncFdWatcher::stopThread() {
+         timeout_cb_ = nullptr;
+     }
  
--  close(notification_listen_fd_);
--  close(notification_write_fd_);
-+  if (notification_listen_fd_ != INVALID_FD) close(notification_listen_fd_);
-+  if (notification_write_fd_ != INVALID_FD) close(notification_write_fd_);
-+  notification_listen_fd_ = INVALID_FD;
-+  notification_write_fd_ = INVALID_FD;
+-    close(notification_listen_fd_);
+-    close(notification_write_fd_);
++    if (notification_listen_fd_ != INVALID_FD) close(notification_listen_fd_);
++    if (notification_write_fd_ != INVALID_FD) close(notification_write_fd_);
++    notification_listen_fd_ = INVALID_FD;
++    notification_write_fd_ = INVALID_FD;
  
-   return 0;
+     return 0;
  }
  
  int AsyncFdWatcher::notifyThread() {
-+  if (notification_write_fd_ == INVALID_FD) return -1;
-   uint8_t buffer[] = {0};
-   if (TEMP_FAILURE_RETRY(write(notification_write_fd_, &buffer, 1)) < 0) {
-     return -1;
-@@ -167,6 +179,7 @@ void AsyncFdWatcher::ThreadRoutine() {
-       for (auto& it : watched_fds_) {
-         if (FD_ISSET(it.first, &read_fds)) {
-           it.second(it.first);
-+          if (!running_) break;
++    if (notification_write_fd_ == INVALID_FD) return -1;
+     uint8_t buffer[] = {0};
+     if (TEMP_FAILURE_RETRY(write(notification_write_fd_, &buffer, 1)) < 0) {
+         return -1;
+@@ -168,6 +182,7 @@ void AsyncFdWatcher::ThreadRoutine() {
+             for (auto& it : watched_fds_) {
+                 if (FD_ISSET(it.first, &read_fds)) {
+                     it.second(it.first);
++                    if (!running_) break;
+                 }
+             }
          }
-       }
-     }
 diff --git a/bluetooth/async/async_fd_watcher.h b/bluetooth/async/async_fd_watcher.h
-index ee7f2359af..e9f1a66956 100644
+index 9067a83..f72c6f6 100644
 --- a/bluetooth/async/async_fd_watcher.h
 +++ b/bluetooth/async/async_fd_watcher.h
 @@ -16,6 +16,7 @@
@@ -266,30 +272,30 @@ index ee7f2359af..e9f1a66956 100644
  #include <map>
  #include <mutex>
 @@ -35,6 +36,8 @@ class AsyncFdWatcher {
-                                  const ReadCallback& on_read_fd_ready_callback);
-   int ConfigureTimeout(const std::chrono::milliseconds timeout,
-                        const TimeoutCallback& on_timeout_callback);
-+  // A callback may request stop. The owner must serialize subsequent Watch,
-+  // Stop and destruction; those operations join the previous watcher thread.
-   void StopWatchingFileDescriptors();
+                                    const ReadCallback& on_read_fd_ready_callback);
+     int ConfigureTimeout(const std::chrono::milliseconds timeout,
+                          const TimeoutCallback& on_timeout_callback);
++    // A callback may request stop. The owner must serialize subsequent Watch,
++    // Stop and destruction; those operations join the previous watcher thread.
+     void StopWatchingFileDescriptors();
  
-  private:
+   private:
 @@ -52,10 +55,10 @@ class AsyncFdWatcher {
-   std::mutex timeout_mutex_;
+     std::mutex timeout_mutex_;
  
-   std::map<int, ReadCallback> watched_fds_;
--  int notification_listen_fd_;
--  int notification_write_fd_;
-+  int notification_listen_fd_{-1};
-+  int notification_write_fd_{-1};
-   TimeoutCallback timeout_cb_;
--  std::chrono::milliseconds timeout_ms_;
-+  std::chrono::milliseconds timeout_ms_{0};
+     std::map<int, ReadCallback> watched_fds_;
+-    int notification_listen_fd_;
+-    int notification_write_fd_;
++    int notification_listen_fd_{-1};
++    int notification_write_fd_{-1};
+     TimeoutCallback timeout_cb_;
+-    std::chrono::milliseconds timeout_ms_;
++    std::chrono::milliseconds timeout_ms_{0};
  };
  
  }  // namespace android::hardware::bluetooth::async
 diff --git a/bluetooth/async/test/async_fd_watcher_unittest.cc b/bluetooth/async/test/async_fd_watcher_unittest.cc
-index 6d75f10279..38d888312c 100644
+index 7aaabc0..be85a86 100644
 --- a/bluetooth/async/test/async_fd_watcher_unittest.cc
 +++ b/bluetooth/async/test/async_fd_watcher_unittest.cc
 @@ -29,6 +29,8 @@
@@ -301,38 +307,37 @@ index 6d75f10279..38d888312c 100644
  #include <vector>
  
  namespace android::hardware::bluetooth::async_test {
-@@ -374,4 +376,34 @@ TEST_F(AsyncFdWatcherSocketTest, RepeatedTimeOutTest) {
-   CleanUpServer();
+@@ -369,4 +371,33 @@ TEST_F(AsyncFdWatcherSocketTest, RepeatedTimeOutTest) {
+     CleanUpServer();
  }
  
 +static void CheckEofStopAndRestart(bool owner_stops_before_restart) {
-+  AsyncFdWatcher watcher;
-+  for (int generation = 0; generation != 2; ++generation) {
-+    int sockets[2];
-+    ASSERT_EQ(0, socketpair(AF_LOCAL, SOCK_STREAM, 0, sockets));
-+    auto stopped = std::make_shared<std::promise<void>>();
-+    auto stopped_future = stopped->get_future();
-+    ASSERT_EQ(0, watcher.WatchFdForNonBlockingReads(sockets[0], [&watcher, stopped](int fd) {
-+      char value;
-+      ASSERT_EQ(0, read(fd, &value, 1));
-+      watcher.StopWatchingFileDescriptors();
-+      stopped->set_value();
-+    }));
-+    close(sockets[1]);
-+    ASSERT_EQ(std::future_status::ready,
-+              stopped_future.wait_for(std::chrono::seconds(1)));
-+    if (owner_stops_before_restart) watcher.StopWatchingFileDescriptors();
-+    close(sockets[0]);
-+  }
-+  watcher.StopWatchingFileDescriptors();
++    AsyncFdWatcher watcher;
++    for (int generation = 0; generation != 2; ++generation) {
++        int sockets[2];
++        ASSERT_EQ(0, socketpair(AF_LOCAL, SOCK_STREAM, 0, sockets));
++        auto stopped = std::make_shared<std::promise<void>>();
++        auto stopped_future = stopped->get_future();
++        ASSERT_EQ(0, watcher.WatchFdForNonBlockingReads(sockets[0], [&watcher, stopped](int fd) {
++            char value;
++            ASSERT_EQ(0, read(fd, &value, 1));
++            watcher.StopWatchingFileDescriptors();
++            stopped->set_value();
++        }));
++        close(sockets[1]);
++        ASSERT_EQ(std::future_status::ready, stopped_future.wait_for(std::chrono::seconds(1)));
++        if (owner_stops_before_restart) watcher.StopWatchingFileDescriptors();
++        close(sockets[0]);
++    }
++    watcher.StopWatchingFileDescriptors();
 +}
 +
 +TEST(AsyncFdWatcherLifecycleTest, EofCallbackStopThenOwnerCloseAndReopen) {
-+  CheckEofStopAndRestart(true);
++    CheckEofStopAndRestart(true);
 +}
 +
 +TEST(AsyncFdWatcherLifecycleTest, EofCallbackStopThenOwnerReopen) {
-+  CheckEofStopAndRestart(false);
++    CheckEofStopAndRestart(false);
 +}
 +
  }  // namespace android::hardware::bluetooth::async_test

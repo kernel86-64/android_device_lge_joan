@@ -69,7 +69,7 @@ TARGET_BOARD_PLATFORM := msm8998
 # Partitions
 # No metadata partition: /metadata is a tmpfs (init.joan.rc) for aconfig.
 BOARD_USES_METADATA_PARTITION := true
-# A-only device (Android 16 defaults to A/B).
+# A-only device (the platform defaults to A/B).
 AB_OTA_UPDATER := false
 BOARD_BOOTIMAGE_PARTITION_SIZE := 41943040
 BOARD_CACHEIMAGE_PARTITION_SIZE := 536870912
@@ -101,7 +101,6 @@ TARGET_COPY_OUT_VENDOR := vendor
 
 # Graphics (Mesa freedreno + drm_hwcomposer + minigbm)
 BOARD_USE_CUSTOMIZED_MESA := true
-TARGET_USES_HWC2 := true
 
 # Recovery
 TARGET_RECOVERY_FSTAB := $(DEVICE_PATH)/rootdir/etc/fstab.joan
