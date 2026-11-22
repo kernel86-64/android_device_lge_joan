@@ -120,6 +120,10 @@
     <bool name="config_dozeAlwaysOnDisplayAvailable">true</bool>
     <bool name="config_dozeAlwaysOnEnabled">true</bool>
     <bool name="config_dozeAfterScreenOffByDefault">false</bool>
+    <!-- Expose the Settings > Display > Lock screen > Always show wallpaper
+         switch.  The user setting (doze_always_on_wallpaper_enabled) defaults
+         to off, so AOD starts with the clock-only look. -->
+    <bool name="config_dozeSupportsAodWallpaper">true</bool>
     <string name="config_dozeComponent" translatable="false">com.android.systemui/.doze.DozeService</string>
 
     <!-- Vibrator pattern for feedback about a long screen/key press -->
