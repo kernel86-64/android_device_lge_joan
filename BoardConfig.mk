@@ -55,9 +55,9 @@ BOARD_KERNEL_CMDLINE += androidboot.joan.bootlog=1
 endif
 BOARD_KERNEL_IMAGE_NAME := Image.gz
 BOARD_KERNEL_APPEND_DTBS := qcom/msm8998-lg-joan.dtb
-TARGET_KERNEL_SOURCE := kernel/lge/joan
+TARGET_KERNEL_SOURCE := kernel/lge/joan-7.3
 TARGET_KERNEL_CONFIG := joan_defconfig
-TARGET_KERNEL_VERSION := 6.18
+TARGET_KERNEL_VERSION := 7.3
 # Modules: everything the kernel build produces goes to /vendor/lib/modules;
 # init.joan.rc loads the firmware-dependent ones after /vendor is up.
 BOARD_VENDOR_KERNEL_MODULES_LOAD := \
