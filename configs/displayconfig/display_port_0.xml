@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Linear brightness values for the HWC HLG transfer function. Preserve the
+     former lux/backlight targets without quantizing low values to 8 bits. -->
+<displayConfiguration>
+    <name>LG V30 SW43402</name>
+    <autoBrightness enabled="true">
+        <luxToBrightnessMapping>
+            <map>
+                <point><first>0</first><second>0.002154299628</second></point>
+                <point><first>1</first><second>0.033219274638</second></point>
+                <point><first>2</first><second>0.041985133923</second></point>
+                <point><first>3</first><second>0.045778546713</second></point>
+                <point><first>4</first><second>0.046752531078</second></point>
+                <point><first>8</first><second>0.050750993208</second></point>
+                <point><first>12</first><second>0.053857490709</second></point>
+                <point><first>20</first><second>0.061464821223</second></point>
+                <point><first>33</first><second>0.066037421505</second></point>
+                <point><first>55</first><second>0.071983852364</second></point>
+                <point><first>90</first><second>0.078186594899</second></point>
+                <point><first>148</first><second>0.086005889551</second></point>
+                <point><first>245</first><second>0.101277081703</second></point>
+                <point><first>403</first><second>0.126859195042</second></point>
+                <point><first>665</first><second>0.163920702721</second></point>
+                <point><first>1097</first><second>0.236384172459</second></point>
+                <point><first>1808</first><second>0.391662534269</second></point>
+                <point><first>2981</first><second>0.633003743974</second></point>
+                <point><first>5000</first><second>1.000000000000</second></point>
+            </map>
+        </luxToBrightnessMapping>
+    </autoBrightness>
+</displayConfiguration>

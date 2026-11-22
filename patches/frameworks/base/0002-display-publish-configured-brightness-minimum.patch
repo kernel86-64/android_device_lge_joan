@@ -1,0 +1,21 @@
+diff --git a/services/core/java/com/android/server/display/DisplayPowerController.java b/services/core/java/com/android/server/display/DisplayPowerController.java
+index f839a319d..b1442d201 100644
+--- a/services/core/java/com/android/server/display/DisplayPowerController.java
++++ b/services/core/java/com/android/server/display/DisplayPowerController.java
+@@ -1967,8 +1967,15 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
+         final HighBrightnessModeData hbmData =
+                 ddConfig != null ? ddConfig.getHighBrightnessModeData() : null;
+         final DisplayDeviceInfo info = mDisplayDevice.getDisplayDeviceInfoLocked();
++        // joan: publish the configured panel minimum as the lower end of the
++        // brightness range. BrightnessInfo.brightnessMinimum is what SystemUI
++        // uses as the slider floor; leaving it at PowerManager.BRIGHTNESS_MIN
++        // (0.0) makes the slider write 0, which the panel driver maps to
++        // DBV_OFF and the screen goes black.
++        final float brightnessMin = ddConfig != null
++                ? ddConfig.getBrightnessMinimum() : PowerManager.BRIGHTNESS_MIN;
+         return mInjector.getHighBrightnessModeController(mHandler, info.width, info.height,
+-                displayToken, displayUniqueId, PowerManager.BRIGHTNESS_MIN,
++                displayToken, displayUniqueId, brightnessMin,
+                 PowerManager.BRIGHTNESS_MAX, hbmData,
+                 (sdrBrightness, maxDesiredHdrSdrRatio, ratioScaleFactor) ->
+                         mDisplayDeviceConfig.getHdrBrightnessFromSdr(sdrBrightness,

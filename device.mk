@@ -105,6 +105,10 @@ PRODUCT_COPY_FILES += \
 # Recovery: LG keeps the bootloader message 128 bytes into misc.
 $(call soong_config_set,lineage_recovery,bootloader_message_offset,128)
 
+# Floating-point panel brightness and automatic-brightness mapping.
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/configs/displayconfig/display_port_0.xml:$(TARGET_COPY_OUT_VENDOR)/etc/displayconfig/display_port_0.xml
+
 # Graphics: Mesa freedreno (prebuilt, see prebuilts/mesa), minigbm, drm_hwcomposer
 $(call soong_config_set,minigbm,platform,msm)
 PRODUCT_PACKAGES += \
