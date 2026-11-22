@@ -115,6 +115,13 @@
     <!-- Whether the display blanks itself when transition from a doze to a non-doze state -->
     <bool name="config_displayBlanksAfterDoze">true</bool>
 
+    <!-- Always-On Display. The SW43402 P-OLED panel supports DOZE, and the
+         doze brightness/display state settings below are tuned for the panel. -->
+    <bool name="config_dozeAlwaysOnDisplayAvailable">true</bool>
+    <bool name="config_dozeAlwaysOnEnabled">true</bool>
+    <bool name="config_dozeAfterScreenOffByDefault">true</bool>
+    <string name="config_dozeComponent" translatable="false">com.android.systemui/.doze.DozeService</string>
+
     <!-- Vibrator pattern for feedback about a long screen/key press -->
     <integer-array name="config_longPressVibePattern">
         <item>0</item>
