@@ -1,0 +1,45 @@
+From 2ee2632ba5c1520a0a47c917408487c62ce93712 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Sun, 22 Nov 2026 15:49:13 +0300
+Subject: [PATCH 21/57] iommu/arm-smmu-qcom: keep the msm8998 GPU SMMU resident
+
+The msm8998 GPU SMMU is pinned powered and its register window is XPU-protected after the GPU comes up. Do not runtime-resume it around the TTBR0 context-bank write; that cycle leaves per-instance GPU pagetables without their mapping and produces translation faults.
+---
+ drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c | 15 ++++++---------
+ 1 file changed, 6 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+index a96f8a4f8..aba6a099f 100644
+--- a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
++++ b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+@@ -261,7 +261,6 @@ static int qcom_adreno_smmu_set_ttbr0_cfg(const void *cookie,
+ 	struct io_pgtable *pgtable = io_pgtable_ops_to_pgtable(smmu_domain->pgtbl_ops);
+ 	struct arm_smmu_cfg *cfg = &smmu_domain->cfg;
+ 	struct arm_smmu_cb *cb = &smmu_domain->smmu->cbs[cfg->cbndx];
+-	int ret;
+ 
+ 	/* The domain must have split pagetables already enabled */
+ 	if (cb->tcr[0] & ARM_SMMU_TCR_EPD1)
+@@ -291,16 +290,14 @@ static int qcom_adreno_smmu_set_ttbr0_cfg(const void *cookie,
+ 		cb->ttbr[0] |= FIELD_PREP(ARM_SMMU_TTBRn_ASID, cb->cfg->asid);
+ 	}
+ 
+-	ret = pm_runtime_resume_and_get(smmu_domain->smmu->dev);
+-	if (ret < 0) {
+-		dev_err(smmu_domain->smmu->dev, "failed to get runtime PM: %d\n", ret);
+-		return -ENODEV;
+-	}
+-
++	/*
++	 * The MSM8998 GPU SMMU is pinned powered.  Do not runtime-resume it
++	 * around the context-bank write: the firmware XPU-protects the SMMU
++	 * window once the GPU is up, and touching it after a runtime cycle
++	 * leaves the GPU's per-instance pagetable without its mapping.
++	 */
+ 	arm_smmu_write_context_bank(smmu_domain->smmu, cb->cfg->cbndx);
+ 
+-	pm_runtime_put_autosuspend(smmu_domain->smmu->dev);
+-
+ 	return 0;
+ }
+ 

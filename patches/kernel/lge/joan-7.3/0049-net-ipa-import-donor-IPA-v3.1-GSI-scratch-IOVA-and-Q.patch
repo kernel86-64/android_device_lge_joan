@@ -1,0 +1,436 @@
+From 20cc960e526b25ffd4635af64256a551257b25cd Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 00:25:30 +0300
+Subject: [PATCH 49/57] net: ipa: import donor IPA v3.1 GSI, scratch IOVA, and
+ QMI fixes
+
+Port the donor IPA v3.1 fixes: non-zero GSI WRR weight, skip quiesce on
+pre-v4.0 runtime suspend, finish STOP_IN_PROC before channel start,
+disable NAPI even on failed stop after SSR, force-close aggregation on
+endpoint disable, map zeroed scratch memory at IOVA 0, and acknowledge
+IPA_QMI_CONFIG and IPA_QMI_INSTALL_FILTER_RULE.
+---
+ drivers/net/ipa/gsi.c          | 70 ++++++++++++++++++---------
+ drivers/net/ipa/ipa.h          |  3 ++
+ drivers/net/ipa/ipa_endpoint.c |  8 ++++
+ drivers/net/ipa/ipa_mem.c      | 88 ++++++++++++++++++++++++++++++++--
+ drivers/net/ipa/ipa_qmi.c      | 59 ++++++++++++++++++++++-
+ drivers/net/ipa/ipa_qmi_msg.c  |  9 ++++
+ drivers/net/ipa/ipa_qmi_msg.h  |  3 ++
+ 7 files changed, 213 insertions(+), 27 deletions(-)
+
+diff --git a/drivers/net/ipa/gsi.c b/drivers/net/ipa/gsi.c
+index 624649484..51b8ddd68 100644
+--- a/drivers/net/ipa/gsi.c
++++ b/drivers/net/ipa/gsi.c
+@@ -828,7 +828,8 @@ static void gsi_channel_program(struct gsi_channel *channel, bool doorbell)
+ 	struct gsi_channel_scratch_gpi *gpi;
+ 	struct gsi *gsi = channel->gsi;
+ 	const struct reg *reg;
+-	u32 wrr_weight = 0;
++	/* A zero weight starves a channel in the round-robin scheduler */
++	u32 wrr_weight = 1;
+ 	u32 offset;
+ 	u32 val;
+ 
+@@ -921,6 +922,21 @@ static void gsi_channel_program(struct gsi_channel *channel, bool doorbell)
+ 	/* All done! */
+ }
+ 
++static int gsi_channel_stop_retry(struct gsi_channel *channel)
++{
++	u32 retries = GSI_CHANNEL_STOP_RETRIES;
++	int ret;
++
++	do {
++		ret = gsi_channel_stop_command(channel);
++		if (ret != -EAGAIN)
++			break;
++		usleep_range(3 * USEC_PER_MSEC, 5 * USEC_PER_MSEC);
++	} while (retries--);
++
++	return ret;
++}
++
+ static int __gsi_channel_start(struct gsi_channel *channel, bool resume)
+ {
+ 	struct gsi *gsi = channel->gsi;
+@@ -932,6 +948,15 @@ static int __gsi_channel_start(struct gsi_channel *channel, bool resume)
+ 
+ 	mutex_lock(&gsi->mutex);
+ 
++	/*
++	 * A stop that timed out leaves the channel in STOP_IN_PROC, which
++	 * the START command refuses. The stop can complete later, once
++	 * whatever held it has gone (an aggregation frame closing, the
++	 * modem coming back after a restart), so finish it first.
++	 */
++	if (gsi_channel_state(channel) == GSI_CHANNEL_STATE_STOP_IN_PROC)
++		(void)gsi_channel_stop_retry(channel);
++
+ 	ret = gsi_channel_start_command(channel);
+ 
+ 	mutex_unlock(&gsi->mutex);
+@@ -958,33 +983,27 @@ int gsi_channel_start(struct gsi *gsi, u32 channel_id)
+ 	return ret;
+ }
+ 
+-static int gsi_channel_stop_retry(struct gsi_channel *channel)
+-{
+-	u32 retries = GSI_CHANNEL_STOP_RETRIES;
+-	int ret;
+-
+-	do {
+-		ret = gsi_channel_stop_command(channel);
+-		if (ret != -EAGAIN)
+-			break;
+-		usleep_range(3 * USEC_PER_MSEC, 5 * USEC_PER_MSEC);
+-	} while (retries--);
+-
+-	return ret;
+-}
+ 
+ static int __gsi_channel_stop(struct gsi_channel *channel, bool suspend)
+ {
+ 	struct gsi *gsi = channel->gsi;
+ 	int ret;
+ 
+-	/* Wait for any underway transactions to complete before stopping. */
+-	gsi_channel_trans_quiesce(channel);
+-
+-	/* Prior to IPA v4.0 suspend/resume is not implemented by GSI */
++	/* Prior to IPA v4.0 suspend/resume is not implemented by GSI.
++	 *
++	 * Check this before quiescing, not after.  The quiesce is an unbounded
++	 * wait for the last transaction to complete; running it on a path that
++	 * is then a no-op means a suspend can block forever on hardware that
++	 * never delivers the completion.  On msm8998 that hangs
++	 * ipa_runtime_suspend() with the device stuck in RPM_SUSPENDING, after
++	 * which every pm_runtime_get() fails and all uplink traffic is dropped.
++	 */
+ 	if (suspend && gsi->version < IPA_VERSION_4_0)
+ 		return 0;
+ 
++	/* Wait for any underway transactions to complete before stopping. */
++	gsi_channel_trans_quiesce(channel);
++
+ 	mutex_lock(&gsi->mutex);
+ 
+ 	ret = gsi_channel_stop_retry(channel);
+@@ -1001,14 +1020,19 @@ int gsi_channel_stop(struct gsi *gsi, u32 channel_id)
+ 	int ret;
+ 
+ 	ret = __gsi_channel_stop(channel, false);
+-	if (ret)
+-		return ret;
+ 
+-	/* Disable the completion interrupt and NAPI if successful */
++	/*
++	 * Disable the completion interrupt and NAPI even if the stop failed.
++	 * The caller treats the channel as stopped either way (the endpoint
++	 * is no longer marked enabled), so the next gsi_channel_start() calls
++	 * napi_enable() again, which BUGs on a NAPI that is still enabled.
++	 * A stop does fail after a modem crash: the GSI STOP command times
++	 * out on the modem-facing channels.
++	 */
+ 	gsi_irq_ieob_disable_one(gsi, channel->evt_ring_id);
+ 	napi_disable(&channel->napi);
+ 
+-	return 0;
++	return ret;
+ }
+ 
+ /* Reset and reconfigure a channel, (possibly) enabling the doorbell engine */
+diff --git a/drivers/net/ipa/ipa.h b/drivers/net/ipa/ipa.h
+index 7ef10a4ff..94dacd354 100644
+--- a/drivers/net/ipa/ipa.h
++++ b/drivers/net/ipa/ipa.h
+@@ -51,6 +51,7 @@ struct ipa_smp2p;
+  * @imem_size:		Size of IMEM region
+  * @smem_iova:		I/O virtual address of IPA region in SMEM
+  * @smem_size:		Size of SMEM region
++ * @scratch_virt:	Zeroed memory mapped at IOVA 0 (IPA v3.1 workaround)
+  * @zero_addr:		DMA address of preallocated zero-filled memory
+  * @zero_virt:		Virtual address of preallocated zero-filled memory
+  * @zero_size:		Size (bytes) of preallocated zero-filled memory
+@@ -106,6 +107,8 @@ struct ipa {
+ 	unsigned long smem_iova;
+ 	size_t smem_size;
+ 
++	void *scratch_virt;
++
+ 	dma_addr_t zero_addr;
+ 	void *zero_virt;
+ 	size_t zero_size;
+diff --git a/drivers/net/ipa/ipa_endpoint.c b/drivers/net/ipa/ipa_endpoint.c
+index 0bd9b9fbb..8b45f1354 100644
+--- a/drivers/net/ipa/ipa_endpoint.c
++++ b/drivers/net/ipa/ipa_endpoint.c
+@@ -1852,6 +1852,14 @@ void ipa_endpoint_disable_one(struct ipa_endpoint *endpoint)
+ 	if (!endpoint->toward_ipa) {
+ 		ipa_endpoint_replenish_disable(endpoint);
+ 		ipa_interrupt_suspend_disable(ipa->interrupt, endpoint_id);
++		/*
++		 * An open aggregation frame keeps a receive buffer in use,
++		 * and the channel cannot stop until the frame closes.
++		 * Close it now, as ipa_endpoint_suspend_aggr() does.
++		 */
++		if (endpoint->config.aggregation &&
++		    ipa_endpoint_aggr_active(endpoint))
++			ipa_endpoint_force_close(endpoint);
+ 	}
+ 
+ 	/* Note that if stop fails, the channel's state is not well-defined */
+diff --git a/drivers/net/ipa/ipa_mem.c b/drivers/net/ipa/ipa_mem.c
+index f600177d6..2694da87c 100644
+--- a/drivers/net/ipa/ipa_mem.c
++++ b/drivers/net/ipa/ipa_mem.c
+@@ -88,7 +88,7 @@ int ipa_mem_setup(struct ipa *ipa)
+ 	/* Get a transaction to define the header memory region and to zero
+ 	 * the processing context and modem memory regions.
+ 	 */
+-	trans = ipa_cmd_trans_alloc(ipa, ipa->version == IPA_VERSION_3_1 ? 5 : 4);
++	trans = ipa_cmd_trans_alloc(ipa, 5);
+ 	if (!trans) {
+ 		dev_err(ipa->dev, "no transaction for memory setup\n");
+ 		return -EBUSY;
+@@ -107,7 +107,14 @@ int ipa_mem_setup(struct ipa *ipa)
+ 
+ 	ipa_cmd_hdr_init_local_add(trans, offset, size, addr);
+ 
+-	/* IPA v3.1 uses the system header table for the default route. */
++	/* The default route set by ipa_endpoint_default_route_set() names the
++	 * header table in system memory, as the downstream driver does, but
++	 * unlike that driver we never locate one, so the IPA takes headers
++	 * from wherever its base register points.  On IPA v3.1 (msm8998)
++	 * that is IOVA 0, and the uplink path reads it as soon as it carries
++	 * traffic.  Give the IPA a table to read: the zeroed DMA buffer, an
++	 * empty table as far as the hardware is concerned.
++	 */
+ 	if (ipa->version == IPA_VERSION_3_1)
+ 		ipa_cmd_hdr_init_system_add(trans, addr);
+ 
+@@ -440,6 +447,76 @@ int ipa_mem_zero_modem(struct ipa *ipa)
+ 	return 0;
+ }
+ 
++/*
++ * On IPA v3.1 (msm8998) something in the IPA reads from IOVA 0x38 as soon as
++ * the modem's uplink channel carries traffic.  Nothing is mapped there, so the
++ * read takes an SMMU translation fault, and the GSI bus error that follows
++ * ends with the modem asserting inside its IPA HAL.  The value read is
++ * consumed rather than ignored -- zeroes are benign, while a poison pattern
++ * stops data flowing without any fault -- so this is a real structure whose
++ * owner has not been identified yet.
++ *
++ * The likely owner is the system header table, whose base ipa_mem_setup()
++ * now programs with IPA_CMD_HDR_INIT_SYSTEM.  Until that is confirmed on
++ * hardware -- cellular data working with "ipa.lowmem=0" and no fault at
++ * IOVA 0x38 -- keep backing the bottom of the IOVA space with zeroed memory
++ * as well.  This is on by default only where the fault has been seen;
++ * "ipa.lowmem=0" or "ipa.lowmem=1" overrides that.
++ */
++static int ipa_lowmem = -1;
++module_param_named(lowmem, ipa_lowmem, int, 0444);
++MODULE_PARM_DESC(lowmem,
++		 "Map zeroed scratch memory at IOVA 0 (-1 = auto, 0 = off, 1 = on)");
++
++#define IPA_SCRATCH_SIZE	SZ_1M
++
++static void ipa_scratch_init(struct ipa *ipa)
++{
++	struct device *dev = ipa->dev;
++	struct iommu_domain *domain;
++	void *virt;
++	int ret;
++
++	if (ipa_lowmem < 0 ? ipa->version != IPA_VERSION_3_1 : !ipa_lowmem)
++		return;
++
++	domain = iommu_get_domain_for_dev(dev);
++	if (!domain) {
++		dev_warn(dev, "no IOMMU domain for IOVA 0 scratch\n");
++		return;
++	}
++
++	virt = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
++					get_order(IPA_SCRATCH_SIZE));
++	if (!virt)
++		return;
++
++	ret = iommu_map(domain, 0, virt_to_phys(virt), IPA_SCRATCH_SIZE,
++			IOMMU_READ | IOMMU_WRITE, GFP_KERNEL);
++	if (ret) {
++		dev_warn(dev, "error %d mapping IOVA 0 scratch\n", ret);
++		free_pages((unsigned long)virt, get_order(IPA_SCRATCH_SIZE));
++		return;
++	}
++
++	ipa->scratch_virt = virt;
++}
++
++static void ipa_scratch_exit(struct ipa *ipa)
++{
++	struct iommu_domain *domain;
++
++	if (!ipa->scratch_virt)
++		return;
++
++	domain = iommu_get_domain_for_dev(ipa->dev);
++	if (domain)
++		iommu_unmap(domain, 0, IPA_SCRATCH_SIZE);
++	free_pages((unsigned long)ipa->scratch_virt,
++		   get_order(IPA_SCRATCH_SIZE));
++	ipa->scratch_virt = NULL;
++}
++
+ /**
+  * ipa_imem_init() - Initialize IMEM memory used by the IPA
+  * @ipa:	IPA pointer
+@@ -682,9 +759,11 @@ int ipa_mem_init(struct ipa *ipa, struct platform_device *pdev,
+ 		imem_size = mem_data->imem_size;
+ 	}
+ 
++	ipa_scratch_init(ipa);
++
+ 	ret = ipa_imem_init(ipa, imem_base, imem_size);
+ 	if (ret)
+-		goto err_unmap;
++		goto err_scratch_exit;
+ 
+ 	ret = ipa_smem_init(ipa, mem_data->smem_size);
+ 	if (ret)
+@@ -694,6 +773,8 @@ int ipa_mem_init(struct ipa *ipa, struct platform_device *pdev,
+ 
+ err_imem_exit:
+ 	ipa_imem_exit(ipa);
++err_scratch_exit:
++	ipa_scratch_exit(ipa);
+ err_unmap:
+ 	memunmap(ipa->mem_virt);
+ 
+@@ -705,5 +786,6 @@ void ipa_mem_exit(struct ipa *ipa)
+ {
+ 	ipa_smem_exit(ipa);
+ 	ipa_imem_exit(ipa);
++	ipa_scratch_exit(ipa);
+ 	memunmap(ipa->mem_virt);
+ }
+diff --git a/drivers/net/ipa/ipa_qmi.c b/drivers/net/ipa/ipa_qmi.c
+index d771f3a71..5600baa6e 100644
+--- a/drivers/net/ipa/ipa_qmi.c
++++ b/drivers/net/ipa/ipa_qmi.c
+@@ -229,7 +229,50 @@ static void ipa_server_driver_init_complete(struct qmi_handle *qmi,
+ 	}
+ }
+ 
+-/* The server handles two request message types sent by the modem. */
++/* The modem sends CONFIG and INSTALL_FILTER_RULE as requests and blocks
++ * until they are answered; left unanswered, it never finishes bringing up
++ * its side of the data path.  The AP has nothing to act on in either, so
++ * acknowledge them with a bare success response.  Both responses consist of
++ * the standard result TLV only, which is the same encoding as the
++ * DRIVER_INIT_COMPLETE response.
++ */
++static void ipa_server_ack(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
++			   struct qmi_txn *txn, u32 msg_id)
++{
++	struct ipa_driver_init_complete_rsp rsp = { };
++	struct ipa_qmi *ipa_qmi;
++	struct ipa *ipa;
++	int ret;
++
++	ipa_qmi = container_of(qmi, struct ipa_qmi, server_handle);
++	ipa = container_of(ipa_qmi, struct ipa, qmi);
++
++	rsp.rsp.result = QMI_RESULT_SUCCESS_V01;
++	rsp.rsp.error = QMI_ERR_NONE_V01;
++
++	ret = qmi_send_response(qmi, sq, txn, msg_id,
++				IPA_QMI_DRIVER_INIT_COMPLETE_RSP_SZ,
++				ipa_driver_init_complete_rsp_ei, &rsp);
++	if (ret)
++		dev_err(ipa->dev, "error %d sending QMI %#x response\n",
++			ret, msg_id);
++}
++
++static void ipa_server_config(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
++			      struct qmi_txn *txn, const void *decoded)
++{
++	ipa_server_ack(qmi, sq, txn, IPA_QMI_CONFIG);
++}
++
++static void ipa_server_install_filter_rule(struct qmi_handle *qmi,
++					   struct sockaddr_qrtr *sq,
++					   struct qmi_txn *txn,
++					   const void *decoded)
++{
++	ipa_server_ack(qmi, sq, txn, IPA_QMI_INSTALL_FILTER_RULE);
++}
++
++/* The server handles four request message types sent by the modem. */
+ static const struct qmi_msg_handler ipa_server_msg_handlers[] = {
+ 	{
+ 		.type		= QMI_REQUEST,
+@@ -245,6 +288,20 @@ static const struct qmi_msg_handler ipa_server_msg_handlers[] = {
+ 		.decoded_size	= IPA_QMI_DRIVER_INIT_COMPLETE_REQ_SZ,
+ 		.fn		= ipa_server_driver_init_complete,
+ 	},
++	{
++		.type		= QMI_REQUEST,
++		.msg_id		= IPA_QMI_CONFIG,
++		.ei		= ipa_empty_req_ei,
++		.decoded_size	= sizeof(u32),
++		.fn		= ipa_server_config,
++	},
++	{
++		.type		= QMI_REQUEST,
++		.msg_id		= IPA_QMI_INSTALL_FILTER_RULE,
++		.ei		= ipa_empty_req_ei,
++		.decoded_size	= sizeof(u32),
++		.fn		= ipa_server_install_filter_rule,
++	},
+ 	{ },
+ };
+ 
+diff --git a/drivers/net/ipa/ipa_qmi_msg.c b/drivers/net/ipa/ipa_qmi_msg.c
+index 51dc13a57..78f191e1a 100644
+--- a/drivers/net/ipa/ipa_qmi_msg.c
++++ b/drivers/net/ipa/ipa_qmi_msg.c
+@@ -169,6 +169,15 @@ const struct qmi_elem_info ipa_driver_init_complete_rsp_ei[] = {
+ 	},
+ };
+ 
++/* Decodes nothing: used for requests whose content the AP ignores.  The
++ * QMI decoder skips TLVs it has no element for.
++ */
++const struct qmi_elem_info ipa_empty_req_ei[] = {
++	{
++		.data_type	= QMI_EOTI,
++	},
++};
++
+ /* QMI message structure definition for struct ipa_init_complete_ind */
+ const struct qmi_elem_info ipa_init_complete_ind_ei[] = {
+ 	{
+diff --git a/drivers/net/ipa/ipa_qmi_msg.h b/drivers/net/ipa/ipa_qmi_msg.h
+index 644b8c271..12fcce57f 100644
+--- a/drivers/net/ipa/ipa_qmi_msg.h
++++ b/drivers/net/ipa/ipa_qmi_msg.h
+@@ -18,6 +18,8 @@
+ #define IPA_QMI_INDICATION_REGISTER	0x20	/* modem -> AP request */
+ #define IPA_QMI_INIT_DRIVER		0x21	/* AP -> modem request */
+ #define IPA_QMI_INIT_COMPLETE		0x22	/* AP -> modem indication */
++#define IPA_QMI_INSTALL_FILTER_RULE	0x23	/* modem -> AP request */
++#define IPA_QMI_CONFIG			0x27	/* modem -> AP request */
+ #define IPA_QMI_DRIVER_INIT_COMPLETE	0x35	/* modem -> AP request */
+ 
+ /* The maximum size required for message types.  These sizes include
+@@ -253,6 +255,7 @@ extern const struct qmi_elem_info ipa_indication_register_rsp_ei[];
+ extern const struct qmi_elem_info ipa_driver_init_complete_req_ei[];
+ extern const struct qmi_elem_info ipa_driver_init_complete_rsp_ei[];
+ extern const struct qmi_elem_info ipa_init_complete_ind_ei[];
++extern const struct qmi_elem_info ipa_empty_req_ei[];
+ extern const struct qmi_elem_info ipa_mem_bounds_ei[];
+ extern const struct qmi_elem_info ipa_mem_array_ei[];
+ extern const struct qmi_elem_info ipa_mem_range_ei[];

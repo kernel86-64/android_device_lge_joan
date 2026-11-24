@@ -1,5 +1,6 @@
 /vendor/bin/rmtfs                     u:object_r:rmtfs_exec:s0
 /vendor/bin/tqftpserv                 u:object_r:tqftpserv_exec:s0
+/vendor/bin/pd-mapper                 u:object_r:joan_pd_mapper_exec:s0
 /dev/qcom_rmtfs_mem[0-9]*             u:object_r:rmtfs_mem_device:s0
 /dev/block/platform/soc@0/1da4000\.ufshc/by-name/modemst[12]  u:object_r:modem_efs_partition_device:s0
 /dev/block/platform/soc@0/1da4000\.ufshc/by-name/fsg          u:object_r:modem_efs_partition_device:s0

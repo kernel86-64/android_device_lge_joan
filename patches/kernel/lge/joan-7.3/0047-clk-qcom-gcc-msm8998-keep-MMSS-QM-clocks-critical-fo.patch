@@ -1,0 +1,46 @@
+From c78bf88a3f461fef2ae72657af06c8e1c825837a Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 00:25:30 +0300
+Subject: [PATCH 47/57] clk: qcom: gcc-msm8998: keep MMSS QM clocks critical
+ for MPSS/RPM
+
+On Linux 6.18, gcc-msm8998 set .sync_state = clk_sync_state so
+clk_disable_unused() left boot-enabled GCC clocks running while camera
+and video consumers stayed unbound. Upstream 7.3 removed clk_sync_state,
+allowing clk_disable_unused() to gate gcc_mmss_qm_ahb_clk and
+gcc_mmss_qm_core_clk shortly after boot.
+
+On LG V30 (MSM8998), once MPSS finishes reading EFS (~0.52 s after
+coming up), RPM stops responding on glink-rpm and resets the SoC via
+PS_HOLD (bootreasoncode=0x20) if the MMSS QoS monitor clocks are gated.
+Mark gcc_mmss_qm_ahb_clk and gcc_mmss_qm_core_clk as CLK_IS_CRITICAL.
+---
+ drivers/clk/qcom/gcc-msm8998.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/clk/qcom/gcc-msm8998.c b/drivers/clk/qcom/gcc-msm8998.c
+index d8b149439..8fd9bdbab 100644
+--- a/drivers/clk/qcom/gcc-msm8998.c
++++ b/drivers/clk/qcom/gcc-msm8998.c
+@@ -2307,6 +2307,13 @@ static struct clk_branch gcc_mmss_qm_ahb_clk = {
+ 		.enable_mask = BIT(0),
+ 		.hw.init = &(struct clk_init_data){
+ 			.name = "gcc_mmss_qm_ahb_clk",
++			/*
++			 * The MMSS QoS monitor is accessed by RPM/MPSS once the
++			 * modem finishes EFS bring-up; gating the QM clocks
++			 * after clk_sync_state removal hangs RPM / resets via
++			 * PS_HOLD.
++			 */
++			.flags = CLK_IS_CRITICAL,
+ 			.ops = &clk_branch2_ops,
+ 		},
+ 	},
+@@ -2320,6 +2327,7 @@ static struct clk_branch gcc_mmss_qm_core_clk = {
+ 		.enable_mask = BIT(0),
+ 		.hw.init = &(struct clk_init_data){
+ 			.name = "gcc_mmss_qm_core_clk",
++			.flags = CLK_IS_CRITICAL,
+ 			.ops = &clk_branch2_ops,
+ 		},
+ 	},

@@ -1,0 +1,71 @@
+From 1a19b86bd218a6108fd39b33b7a54ec1b5541f87 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 00:25:30 +0300
+Subject: [PATCH 54/57] interconnect: qcom: rpm: cache acknowledged bandwidth
+ votes
+
+Port the 6.18 bandwidth vote cache so repeated OPP updates with
+unchanged average bandwidth do not resend synchronous RPM messages.
+---
+ drivers/interconnect/qcom/icc-rpm.c | 11 +++++++++++
+ drivers/interconnect/qcom/icc-rpm.h |  4 ++++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/drivers/interconnect/qcom/icc-rpm.c b/drivers/interconnect/qcom/icc-rpm.c
+index 76dc00cb8..b6d2cb68d 100644
+--- a/drivers/interconnect/qcom/icc-rpm.c
++++ b/drivers/interconnect/qcom/icc-rpm.c
+@@ -213,6 +213,12 @@ static int qcom_icc_rpm_set(struct qcom_icc_node *qn, u64 *bw, bool ignore_enxio
+ 		return 0;
+ 
+ 	for (rpm_ctx = 0; rpm_ctx < QCOM_SMD_RPM_STATE_NUM; rpm_ctx++) {
++		if ((qn->last_bw_valid & BIT(rpm_ctx)) &&
++		    qn->last_bw[rpm_ctx] == bw[rpm_ctx])
++			continue;
++
++		/* A partial failure must also invalidate the previous vote. */
++		qn->last_bw_valid &= ~BIT(rpm_ctx);
+ 		bw_bps = icc_units_to_bps(bw[rpm_ctx]);
+ 
+ 		if (qn->mas_rpm_id != -1) {
+@@ -240,6 +246,9 @@ static int qcom_icc_rpm_set(struct qcom_icc_node *qn, u64 *bw, bool ignore_enxio
+ 					return ret;
+ 			}
+ 		}
++
++		qn->last_bw[rpm_ctx] = bw[rpm_ctx];
++		qn->last_bw_valid |= BIT(rpm_ctx);
+ 	}
+ 
+ 	return 0;
+@@ -571,6 +580,8 @@ int qnoc_probe(struct platform_device *pdev)
+ 	for (i = 0; i < num_nodes; i++) {
+ 		size_t j;
+ 
++		qnodes[i]->last_bw_valid = 0;
++
+ 		if (!qnodes[i]->ab_coeff)
+ 			qnodes[i]->ab_coeff = qp->ab_coeff;
+ 
+diff --git a/drivers/interconnect/qcom/icc-rpm.h b/drivers/interconnect/qcom/icc-rpm.h
+index fe874173d..c4884c4a1 100644
+--- a/drivers/interconnect/qcom/icc-rpm.h
++++ b/drivers/interconnect/qcom/icc-rpm.h
+@@ -101,6 +101,8 @@ struct qcom_icc_qos {
+  * @bus_clk_desc: a pointer to a rpm_clk_resource description of bus clocks
+  * @sum_avg: current sum aggregate value of all avg bw requests
+  * @max_peak: current max aggregate value of all peak bw requests
++ * @last_bw: last bandwidth acknowledged by the RPM for each context
++ * @last_bw_valid: bitmap of contexts with an acknowledged bandwidth
+  * @mas_rpm_id:	RPM id for devices that are bus masters
+  * @slv_rpm_id:	RPM id for devices that are bus slaves
+  * @qos: NoC QoS setting parameters
+@@ -118,6 +120,8 @@ struct qcom_icc_node {
+ 	const struct rpm_clk_resource *bus_clk_desc;
+ 	u64 sum_avg[QCOM_SMD_RPM_STATE_NUM];
+ 	u64 max_peak[QCOM_SMD_RPM_STATE_NUM];
++	u64 last_bw[QCOM_SMD_RPM_STATE_NUM];
++	u8 last_bw_valid;
+ 	int mas_rpm_id;
+ 	int slv_rpm_id;
+ 	struct qcom_icc_qos qos;

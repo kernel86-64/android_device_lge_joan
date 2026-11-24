@@ -20,7 +20,8 @@ apply_series() {
     if [[ $(git -C "$TOP/$project" rev-parse 'HEAD^{tree}') == "$tree" ]]; then
         echo "applied  $project (series)"
     elif [[ $(git -C "$TOP/$project" rev-parse HEAD) == "$base" ]]; then
-        git -C "$TOP/$project" -c user.name=joan -c user.email=joan@localhost \
+        git -C "$TOP/$project" -c user.name='kernel86-64' \
+            -c user.email='87580651+kernel86-64@users.noreply.github.com' \
             am -q --keep-cr "$dir"/*.patch
         if [[ $(git -C "$TOP/$project" rev-parse 'HEAD^{tree}') != "$tree" ]]; then
             echo "FAILED   $project series applied but the result differs"

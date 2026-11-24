@@ -1,0 +1,35 @@
+From e39d1cd9d3d10c8ef696594fb1804d39e2ca3e88 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 20:08:54 +0300
+Subject: [PATCH 37/57] soc: qcom: pd-mapper: restore the MSM8998 ADSP and SLPI
+ domains
+
+The joan port left only mpss_root_pd and mpss_wlan_pd in
+msm8998_domains[].  adsp_audio_pd is what publishes the avs/audio
+service, so every PDR lookup of it fails with -ENXIO and the ADSP audio
+DSP never comes up; adsp_root_pd, slpi_root_pd and slpi_sensor_pd are
+missing from the SLPI sensor path as well.
+
+The four descriptors are still defined in this file, so list them again
+the way the 6.18 tree does.
+---
+ drivers/soc/qcom/qcom_pd_mapper.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/soc/qcom/qcom_pd_mapper.c b/drivers/soc/qcom/qcom_pd_mapper.c
+index 64ca99d7f..99cfc5221 100644
+--- a/drivers/soc/qcom/qcom_pd_mapper.c
++++ b/drivers/soc/qcom/qcom_pd_mapper.c
+@@ -409,8 +409,12 @@ static const struct qcom_pdm_domain_data *msm8996_domains[] = {
+ };
+ 
+ static const struct qcom_pdm_domain_data *msm8998_domains[] = {
++	&adsp_audio_pd,
++	&adsp_root_pd,
+ 	&mpss_root_pd,
+ 	&mpss_wlan_pd,
++	&slpi_root_pd,
++	&slpi_sensor_pd,
+ 	NULL,
+ };
+ 

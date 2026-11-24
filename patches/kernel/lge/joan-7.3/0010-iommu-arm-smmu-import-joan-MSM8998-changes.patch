@@ -1,0 +1,160 @@
+From 8009c4d8bd92596313f5915bb65cbe99e16b2e0c Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 13:11:07 +0300
+Subject: [PATCH 10/57] iommu/arm-smmu: import joan MSM8998 changes
+
+Import the donor SMMU changes from ShapeShifter499/linux-lg-v30-joan at 0f643b34. The joan UFS and display streams need these MSM8998 mappings/quirks.
+---
+ drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c | 17 ++++++++-
+ drivers/iommu/arm/arm-smmu/arm-smmu.c      | 41 ++++++++++++++++++++--
+ drivers/iommu/arm/arm-smmu/arm-smmu.h      |  7 ++++
+ 3 files changed, 62 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+index 795e8ec7e..a96f8a4f8 100644
+--- a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
++++ b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+@@ -329,7 +329,9 @@ static bool qcom_adreno_can_do_ttbr1(struct arm_smmu_device *smmu)
+ {
+ 	const struct device_node *np = smmu->dev->of_node;
+ 
+-	if (of_device_is_compatible(np, "qcom,msm8996-smmu-v2"))
++	if (of_device_is_compatible(np, "qcom,msm8996-smmu-v2") ||
++	    of_device_is_compatible(np, "qcom,msm8998-smmu-v2") ||
++	    of_device_is_compatible(np, "qcom,sdm630-smmu-v2"))
+ 		return false;
+ 
+ 	return true;
+@@ -409,6 +411,7 @@ static const struct of_device_id qcom_smmu_client_of_match[] __maybe_unused = {
+ 	{ .compatible = "qcom,glymur-mdss" },
+ 	{ .compatible = "qcom,mdp4" },
+ 	{ .compatible = "qcom,mdss" },
++	{ .compatible = "qcom,msm8998-mdss" },
+ 	{ .compatible = "qcom,qcm2290-mdss" },
+ 	{ .compatible = "qcom,sar2130p-mdss" },
+ 	{ .compatible = "qcom,sc7180-mdss" },
+@@ -538,6 +541,18 @@ static int qcom_adreno_smmuv2_cfg_probe(struct arm_smmu_device *smmu)
+ 	/* Support for 16K pages is advertised on some SoCs, but it doesn't seem to work */
+ 	smmu->features &= ~ARM_SMMU_FEAT_FMT_AARCH64_16K;
+ 
++	/*
++	 * On MSM8998 the firmware XPU-protects the GPU SMMU's register window
++	 * once the GPU has been brought up: its protected-region table covers
++	 * 0x05040000-0x05060000 with non-secure read and write both denied, so
++	 * any access -- a read is enough -- raises a bus error that the secure
++	 * side turns into a system reset, with nothing logged on the Linux
++	 * side. That leaves no way to restore the mapping after the domain
++	 * collapses, so the device has to stay resident instead.
++	 */
++	if (of_device_is_compatible(smmu->dev->of_node, "qcom,msm8998-smmu-v2"))
++		smmu->features |= ARM_SMMU_FEAT_PIN_POWERED;
++
+ 	/* TZ protects several last context banks, hide them from Linux */
+ 	if (of_device_is_compatible(smmu->dev->of_node, "qcom,sdm630-smmu-v2") &&
+ 	    smmu->num_context_banks == 5)
+diff --git a/drivers/iommu/arm/arm-smmu/arm-smmu.c b/drivers/iommu/arm/arm-smmu/arm-smmu.c
+index 889a0966d..94ae7f33a 100644
+--- a/drivers/iommu/arm/arm-smmu/arm-smmu.c
++++ b/drivers/iommu/arm/arm-smmu/arm-smmu.c
+@@ -1655,7 +1655,8 @@ static const struct iommu_ops arm_smmu_ops = {
+ 	}
+ };
+ 
+-static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
++static void __arm_smmu_device_reset(struct arm_smmu_device *smmu,
++				    bool skip_stream_mapping)
+ {
+ 	int i;
+ 	u32 reg;
+@@ -1667,7 +1668,17 @@ static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
+ 	/*
+ 	 * Reset stream mapping groups: Initial values mark all SMRn as
+ 	 * invalid and all S2CRn as bypass unless overridden.
++	 *
++	 * An implementation that retains its stream mapping and context bank
++	 * state across a power collapse must not have it overwritten here on
++	 * the way back up, and on some of those the registers are firmware
++	 * protected once the client device has been brought up, so they can
++	 * not even be read.  Everything below still has to run: the TLB is
++	 * not retained, and sCR0 comes back with client access disabled.
+ 	 */
++	if (skip_stream_mapping)
++		goto invalidate;
++
+ 	for (i = 0; i < smmu->num_mapping_groups; ++i)
+ 		arm_smmu_write_sme(smmu, i);
+ 
+@@ -1677,6 +1688,8 @@ static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
+ 		arm_smmu_cb_write(smmu, i, ARM_SMMU_CB_FSR, ARM_SMMU_CB_FSR_FAULT);
+ 	}
+ 
++invalidate:
++
+ 	/* Invalidate the TLB, just in case */
+ 	arm_smmu_gr0_write(smmu, ARM_SMMU_GR0_TLBIALLH, QCOM_DUMMY_VAL);
+ 	arm_smmu_gr0_write(smmu, ARM_SMMU_GR0_TLBIALLNSNH, QCOM_DUMMY_VAL);
+@@ -1717,6 +1730,11 @@ static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
+ 	arm_smmu_gr0_write(smmu, ARM_SMMU_GR0_sCR0, reg);
+ }
+ 
++static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
++{
++	__arm_smmu_device_reset(smmu, false);
++}
++
+ static int arm_smmu_id_size_to_bits(int size)
+ {
+ 	switch (size) {
+@@ -2249,6 +2267,16 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
+ 		pm_runtime_set_active(dev);
+ 		pm_runtime_enable(dev);
+ 		arm_smmu_rpm_use_autosuspend(smmu);
++
++		/*
++		 * Where firmware owns the stream mapping registers they cannot
++		 * be reprogrammed once the client device is up -- on some
++		 * implementations they cannot even be read -- so a collapse of
++		 * the power domain loses the mapping for good.  Hold a usage
++		 * reference for the lifetime of the device to keep it resident.
++		 */
++		if (smmu->features & ARM_SMMU_FEAT_PIN_POWERED)
++			pm_runtime_get_noresume(dev);
+ 	}
+ 
+ 	return 0;
+@@ -2293,7 +2321,16 @@ static int __maybe_unused arm_smmu_runtime_resume(struct device *dev)
+ 	if (ret)
+ 		return ret;
+ 
+-	arm_smmu_device_reset(smmu);
++	/*
++	 * Some implementations keep their stream mapping and context bank
++	 * state across a power-domain collapse, and rewriting it here is at
++	 * best redundant. Where the firmware owns that part of the register
++	 * file it is actively harmful, so leave it alone -- but still clear
++	 * the global fault status, invalidate the TLB and reprogram sCR0,
++	 * none of which survive the collapse.
++	 */
++	__arm_smmu_device_reset(smmu,
++				!!(smmu->features & ARM_SMMU_FEAT_PIN_POWERED));
+ 
+ 	return 0;
+ }
+diff --git a/drivers/iommu/arm/arm-smmu/arm-smmu.h b/drivers/iommu/arm/arm-smmu/arm-smmu.h
+index 26d2e33cd..b5ee89340 100644
+--- a/drivers/iommu/arm/arm-smmu/arm-smmu.h
++++ b/drivers/iommu/arm/arm-smmu/arm-smmu.h
+@@ -307,6 +307,13 @@ struct arm_smmu_device {
+ #define ARM_SMMU_FEAT_FMT_AARCH32_L	(1 << 10)
+ #define ARM_SMMU_FEAT_FMT_AARCH32_S	(1 << 11)
+ #define ARM_SMMU_FEAT_EXIDS		(1 << 12)
++/*
++ * Set by an implementation that cannot be re-initialised once its client
++ * device is up, because firmware owns the stream mapping registers. Such a
++ * device must not be allowed to lose its configuration to a power-domain
++ * collapse, so it is kept runtime-resident for its whole lifetime.
++ */
++#define ARM_SMMU_FEAT_PIN_POWERED	BIT(13)
+ 	u32				features;
+ 
+ 	enum arm_smmu_arch_version	version;

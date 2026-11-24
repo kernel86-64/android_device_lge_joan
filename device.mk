@@ -133,6 +133,11 @@ PRODUCT_VENDOR_PROPERTIES += \
     debug.renderengine.backend=skiaglthreaded \
     ro.surface_flinger.max_frame_buffer_acquired_buffers=3
 
+# Report UI/compositor frame deadlines through the Power HAL's ADPF sessions.
+PRODUCT_SYSTEM_PROPERTIES += \
+    debug.hwui.use_hint_manager=true \
+    debug.sf.enable_adpf_cpu_hint=true
+
 # Linear buffers only for now: with UBWC render targets on scanout the
 # panel stays black (fbcon's linear buffer works). Revisit UBWC later.
 PRODUCT_VENDOR_PROPERTIES += vendor.minigbm.debug=nocompression
@@ -226,6 +231,7 @@ PRODUCT_PACKAGES += \
     android.hardware.wifi-service \
     hostapd \
     wpa_supplicant \
+    wpa_supplicant.conf \
     libwpa_client
 PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.wifi.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.wifi.xml \
@@ -237,14 +243,29 @@ PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.usb.host.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.usb.host.xml \
     frameworks/native/data/etc/android.hardware.usb.accessory.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.usb.accessory.xml
 
-# Modem bring-up helpers (QRTR userspace, remote fs, TFTP)
+# Modem bring-up helpers (QRTR userspace, remote fs, TFTP, PD mapper)
 PRODUCT_PACKAGES += \
     rmtfs \
     tqftpserv \
+    pd-mapper \
     libqrtr \
     qrtr-lookup
 
-# Firmware extracted from the phone (see extract-firmware.sh)
+# The modem partition supplies the matching remoteproc, WLAN and IPA firmware.
+# Keep the mountpoint in the read-only vendor image for fs_mgr's early mount.
+PRODUCT_PACKAGES += \
+    joan_firmware_mountpoint \
+    joan_remoteproc_firmware \
+    joan_wlan_dsp_firmware \
+    joan_wlan_board_data \
+    joan_ipa_firmware_mdt \
+    joan_ipa_firmware_b00 \
+    joan_ipa_firmware_b01 \
+    joan_ipa_firmware_b02 \
+    joan_ipa_firmware_b03 \
+    joan_ipa_firmware_b04
+
+# Other extracted firmware and proprietary userspace libraries.
 $(call inherit-product-if-exists, vendor/lge/joan/joan-vendor.mk)
 $(call inherit-product-if-exists, vendor/lge/joan/radio/radio-vendor.mk)
 

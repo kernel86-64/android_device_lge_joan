@@ -1,0 +1,550 @@
+From 814568fc199fe87d9d5025011d7737637439ef98 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 13:10:46 +0300
+Subject: [PATCH 08/57] drm/msm: import joan DSI/DPU changes
+
+Import the DSI manager, 10nm PHY, DPU command-mode encoder, CRTC/KMS and MSM8998 catalog changes from ShapeShifter499/linux-lg-v30-joan at 0f643b34. The SW43402 panel path needs the joan command-mode/DSC behaviour. The final 7.3 base has no conflicting changes in these files.
+---
+ .../msm/disp/dpu1/catalog/dpu_3_0_msm8998.h   |  2 +-
+ drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c      | 24 +++--
+ drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c   | 90 ++++++++++++++++++-
+ drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.h   |  5 ++
+ .../gpu/drm/msm/disp/dpu1/dpu_encoder_phys.h  | 10 +++
+ .../drm/msm/disp/dpu1/dpu_encoder_phys_cmd.c  | 62 +++++++++++++
+ drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c       | 14 +++
+ drivers/gpu/drm/msm/dsi/dsi.c                 |  1 +
+ drivers/gpu/drm/msm/dsi/dsi.h                 |  3 +
+ drivers/gpu/drm/msm/dsi/dsi_manager.c         | 54 ++++++++++-
+ drivers/gpu/drm/msm/dsi/phy/dsi_phy_10nm.c    |  7 +-
+ drivers/gpu/drm/msm/msm_kms.h                 | 10 +++
+ 12 files changed, 269 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_3_0_msm8998.h b/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_3_0_msm8998.h
+index 67c1463d3..e9d26ab52 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_3_0_msm8998.h
++++ b/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_3_0_msm8998.h
+@@ -277,7 +277,7 @@ static const struct dpu_perf_cfg msm8998_perf_data = {
+ 		{.rd_enable = 1, .wr_enable = 1},
+ 		{.rd_enable = 1, .wr_enable = 0}
+ 	},
+-	.clk_inefficiency_factor = 200,
++	.clk_inefficiency_factor = 105,
+ 	.bw_inefficiency_factor = 120,
+ };
+ 
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c
+index 42d0a529b..0401c46b8 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c
+@@ -53,12 +53,13 @@ static struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
+ 
+ static struct drm_encoder *get_encoder_from_crtc(struct drm_crtc *crtc)
+ {
+-	struct drm_device *dev = crtc->dev;
+ 	struct drm_encoder *encoder;
+ 
+-	drm_for_each_encoder(encoder, dev)
+-		if (encoder->crtc == crtc)
+-			return encoder;
++	if (!crtc->state)
++		return NULL;
++
++	drm_for_each_encoder_mask(encoder, crtc->dev, crtc->state->encoder_mask)
++		return encoder;
+ 
+ 	return NULL;
+ }
+@@ -189,7 +190,7 @@ static u32 dpu_crtc_get_vblank_counter(struct drm_crtc *crtc)
+ {
+ 	struct drm_encoder *encoder = get_encoder_from_crtc(crtc);
+ 	if (!encoder) {
+-		DRM_ERROR("no encoder found for crtc %d\n", crtc->index);
++		DRM_DEBUG_KMS("no encoder found for crtc %d\n", crtc->index);
+ 		return 0;
+ 	}
+ 
+@@ -279,7 +280,7 @@ static bool dpu_crtc_get_scanout_position(struct drm_crtc *crtc,
+ 
+ 	encoder = get_encoder_from_crtc(crtc);
+ 	if (!encoder) {
+-		DRM_ERROR("no encoder found for crtc %d\n", pipe);
++		DRM_DEBUG_KMS("no encoder found for crtc %d\n", pipe);
+ 		return false;
+ 	}
+ 
+@@ -723,6 +724,17 @@ void dpu_crtc_frame_event_cb(struct drm_crtc *crtc, u32 event)
+ 	if (event & DPU_ENCODER_FRAME_EVENT_IDLE)
+ 		return;
+ 
++	/*
++	 * Frame latched into the panel transfer (cmd mode): send the pending
++	 * pageflip now so userspace can pipeline the next frame into the
++	 * ongoing transfer. complete_commit()'s later call is a no-op once
++	 * the event has been sent.
++	 */
++	if (event & DPU_ENCODER_FRAME_EVENT_STARTED) {
++		_dpu_crtc_complete_flip(crtc);
++		return;
++	}
++
+ 	dpu_crtc = to_dpu_crtc(crtc);
+ 	priv = crtc->dev->dev_private;
+ 	crtc_id = drm_crtc_index(crtc);
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c
+index 1f20695f8..584730c63 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c
+@@ -42,6 +42,9 @@
+ #define DPU_ERROR_ENC(e, fmt, ...) DPU_ERROR("enc%d " fmt,\
+ 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
+ 
++/* A DCS caller drops its command if the current frame cannot finish in time. */
++#define DPU_LINK_ACQUIRE_TIMEOUT_MS 50
++
+ #define DPU_ERROR_ENC_RATELIMITED(e, fmt, ...) DPU_ERROR_RATELIMITED("enc%d " fmt,\
+ 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
+ 
+@@ -151,7 +154,8 @@ enum dpu_enc_rc_states {
+  *			_after_ encoder_mask is cleared.
+  * @connector:		If a mode is set, cached pointer to the active connector
+  * @enc_lock:			Lock around physical encoder
+- *				create/destroy/enable/disable
++ *				create/destroy/enable/disable and kickoff/DCS
++ *				exclusion
+  * @frame_busy_mask:		Bitmask tracking which phys_enc we are still
+  *				busy processing current command.
+  *				Bit0 = phys_encs[0] etc.
+@@ -2162,6 +2166,14 @@ void dpu_encoder_kickoff(struct drm_encoder *drm_enc)
+ 
+ 	trace_dpu_enc_kickoff(DRMID(drm_enc));
+ 
++	/*
++	 * Exclude DCS transfers from the point that a frame is marked pending
++	 * through the hardware kickoff. A DCS caller holds the same mutex while
++	 * waiting for that pending frame and transmitting its command, so neither
++	 * side can slip into the other's idle-to-start window.
++	 */
++	mutex_lock(&dpu_enc->enc_lock);
++
+ 	/* All phys encs are ready to go, trigger the kickoff */
+ 	_dpu_encoder_kickoff_phys(dpu_enc);
+ 
+@@ -2172,6 +2184,8 @@ void dpu_encoder_kickoff(struct drm_encoder *drm_enc)
+ 			phys->ops.handle_post_kickoff(phys);
+ 	}
+ 
++	mutex_unlock(&dpu_enc->enc_lock);
++
+ 	DPU_ATRACE_END("encoder_kickoff");
+ }
+ 
+@@ -2838,6 +2852,72 @@ int dpu_encoder_wait_for_commit_done(struct drm_encoder *drm_enc)
+ 	return ret;
+ }
+ 
++/**
++ * dpu_encoder_acquire_link - reserve an idle command-mode display link
++ * @drm_enc: encoder whose link is being reserved
++ *
++ * Reserve the kickoff gate, then wait for any frame already handed to the
++ * panel to finish. Holding the gate across the caller's DCS transfer prevents
++ * a new kickoff from racing into the interval between the idle observation
++ * and the command.
++ *
++ * Deliberately does NOT go through dpu_encoder_wait_for_tx_complete(). That
++ * path owns the display thread's bookkeeping: on timeout it runs frame-done
++ * recovery, and on success it clears the timeout report count. A second thread
++ * calling it can trigger spurious recovery or mask a real timeout, which
++ * manifests as a commit that never completes and a frozen display.
++ *
++ * Waits on the same waitqueue and counter without modifying either. On timeout
++ * the gate is released and the caller must not send the command: dropping a
++ * late brightness update is safer than corrupting a frame and DSC state.
++ *
++ * Return: 0 with the gate held, or a negative error with no gate held.
++ */
++int dpu_encoder_acquire_link(struct drm_encoder *drm_enc)
++{
++	struct dpu_encoder_virt *dpu_enc;
++	int i;
++
++	if (!drm_enc)
++		return -EINVAL;
++
++	dpu_enc = to_dpu_encoder_virt(drm_enc);
++	mutex_lock(&dpu_enc->enc_lock);
++
++	/* Nothing can be in flight while the encoder is off. */
++	if (!dpu_enc->enabled)
++		return 0;
++
++	for (i = 0; i < dpu_enc->num_phys_encs; i++) {
++		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];
++
++		if (!phys)
++			continue;
++
++		if (!wait_event_timeout(phys->pending_kickoff_wq,
++					atomic_read(&phys->pending_kickoff_cnt) == 0,
++					msecs_to_jiffies(DPU_LINK_ACQUIRE_TIMEOUT_MS))) {
++			DPU_ERROR_ENC_RATELIMITED(dpu_enc,
++						  "timed out acquiring DSI link\n");
++			mutex_unlock(&dpu_enc->enc_lock);
++			return -ETIMEDOUT;
++		}
++	}
++
++	return 0;
++}
++
++/**
++ * dpu_encoder_release_link - release a link reserved by acquire_link
++ * @drm_enc: encoder whose link was reserved
++ */
++void dpu_encoder_release_link(struct drm_encoder *drm_enc)
++{
++	struct dpu_encoder_virt *dpu_enc = to_dpu_encoder_virt(drm_enc);
++
++	mutex_unlock(&dpu_enc->enc_lock);
++}
++
+ /**
+  * dpu_encoder_wait_for_tx_complete() - Wait for encoder to transfer pixels to panel
+  * @drm_enc:	encoder pointer
+@@ -2860,6 +2940,14 @@ int dpu_encoder_wait_for_tx_complete(struct drm_encoder *drm_enc)
+ 	dpu_enc = to_dpu_encoder_virt(drm_enc);
+ 	DPU_DEBUG_ENC(dpu_enc, "\n");
+ 
++	/*
++	 * Nothing can be in flight while the encoder is off, and the per-phys
++	 * waits below log an error if called then. Link arbitration has its own
++	 * counter-only wait and disabled-encoder guard.
++	 */
++	if (!dpu_enc->enabled)
++		return 0;
++
+ 	for (i = 0; i < dpu_enc->num_phys_encs; i++) {
+ 		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];
+ 
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.h b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.h
+index 4942097e7..3e5853122 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.h
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.h
+@@ -16,6 +16,7 @@
+ #define DPU_ENCODER_FRAME_EVENT_ERROR			BIT(1)
+ #define DPU_ENCODER_FRAME_EVENT_PANEL_DEAD		BIT(2)
+ #define DPU_ENCODER_FRAME_EVENT_IDLE			BIT(3)
++#define DPU_ENCODER_FRAME_EVENT_STARTED		BIT(4)
+ 
+ #define IDLE_TIMEOUT	(66 - 16/2)
+ 
+@@ -56,6 +57,10 @@ int dpu_encoder_wait_for_commit_done(struct drm_encoder *drm_encoder);
+ 
+ int dpu_encoder_wait_for_tx_complete(struct drm_encoder *drm_encoder);
+ 
++int dpu_encoder_acquire_link(struct drm_encoder *drm_encoder);
++
++void dpu_encoder_release_link(struct drm_encoder *drm_encoder);
++
+ enum dpu_intf_mode dpu_encoder_get_intf_mode(struct drm_encoder *encoder);
+ 
+ void dpu_encoder_virt_runtime_resume(struct drm_encoder *encoder);
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys.h b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys.h
+index 61b22d949..d250746b5 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys.h
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys.h
+@@ -246,6 +246,16 @@ struct dpu_encoder_phys_cmd {
+ 	int pp_timeout_report_cnt;
+ 	atomic_t pending_vblank_cnt;
+ 	wait_queue_head_t pending_vblank_wq;
++
++	/*
++	 * Set when the encoder transitions to enabled (including every
++	 * blank -> unblank wake). On the first kickoff after that
++	 * transition, the encoder waits for one TE (read-pointer) edge so
++	 * the first command-mode frame lands after the panel's scan-out
++	 * has re-established; without this the first frame can tear and
++	 * show as transient garbage on the wake transition.
++	 */
++	bool first_kickoff_after_enable;
+ };
+ 
+ /**
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_cmd.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_cmd.c
+index 45079ee59..765963f20 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_cmd.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_cmd.c
+@@ -121,6 +121,27 @@ static void dpu_encoder_phys_cmd_te_rd_ptr_irq(void *arg)
+ 
+ 	dpu_encoder_vblank_callback(phys_enc->parent, phys_enc);
+ 
++	/*
++	 * The read pointer has started this frame's transfer, so the previous
++	 * framebuffer is no longer referenced -- which is the pageflip event
++	 * semantic. Delivering it here rather than at transfer *completion*
++	 * lets the compositor render the next frame while this one is still
++	 * being pushed over DSI. Without it the whole session is locked to
++	 * half the panel rate: a 14.6 ms transfer inside a 16.7 ms TE slot,
++	 * with the flip at +14.6 ms, serialises everything to 33.4 ms.
++	 *
++	 * Gated on a kickoff being in flight: the tearcheck read pointer also
++	 * ticks on bare TE with no commit pending, and signalling a flip then
++	 * would release a buffer the panel is still being fed from.
++	 *
++	 * MSM8998 cannot use the CTL_START interrupt for this -- it has none
++	 * (see dpu_3_0_msm8998.h) -- but rd_ptr is already its vblank source,
++	 * and DRM delivers pageflip events at vblank anyway.
++	 */
++	if (atomic_read(&phys_enc->pending_kickoff_cnt))
++		dpu_encoder_frame_done_callback(phys_enc->parent, phys_enc,
++						DPU_ENCODER_FRAME_EVENT_STARTED);
++
+ 	atomic_add_unless(&cmd_enc->pending_vblank_cnt, -1, 0);
+ 	wake_up_all(&cmd_enc->pending_vblank_wq);
+ 	DPU_ATRACE_END("rd_ptr_irq");
+@@ -486,6 +507,13 @@ static void dpu_encoder_phys_cmd_enable(struct dpu_encoder_phys *phys_enc)
+ 
+ 	dpu_encoder_phys_cmd_enable_helper(phys_enc);
+ 	phys_enc->enable_state = DPU_ENC_ENABLED;
++
++	/*
++	 * Mark that the next kickoff is the first after this enable
++	 * transition (including every blank -> unblank wake) so it waits
++	 * for one TE edge before sending the first frame.
++	 */
++	cmd_enc->first_kickoff_after_enable = true;
+ }
+ 
+ static void _dpu_encoder_phys_cmd_connect_te(
+@@ -608,6 +636,40 @@ static void dpu_encoder_phys_cmd_prepare_for_kickoff(
+ 
+ 	dpu_encoder_phys_cmd_enable_te(phys_enc);
+ 
++	/*
++	 * First kickoff after an enable/wake transition: wait for one TE
++	 * (read-pointer) edge before sending the first frame. On blank ->
++	 * unblank the panel's scan-out and TE re-establish while the first
++	 * command-mode frame is being prepared; if it is kicked before the
++	 * first TE edge, the panel receives it mid-scan and shows transient
++	 * garbage (owner-visible "rainbow" on the LG V30 sw43402 wake
++	 * transition) until the next frame lands cleanly.
++	 *
++	 * The TE IRQ is only live on the master encoder, and only when the
++	 * vblank/read-pointer callback is registered (vblank_refcount > 0);
++	 * guard on both. The wait is bounded and fail-open: if no TE edge
++	 * arrives (e.g. the panel is idle), log once and proceed rather than
++	 * wedging the wake path.
++	 */
++	if (cmd_enc->first_kickoff_after_enable) {
++		cmd_enc->first_kickoff_after_enable = false;
++
++		if (dpu_encoder_phys_cmd_is_master(phys_enc) &&
++		    phys_enc->vblank_refcount > 0 &&
++		    phys_enc->irq[INTR_IDX_RDPTR]) {
++			atomic_set(&cmd_enc->pending_vblank_cnt, 1);
++			ret = wait_event_timeout(cmd_enc->pending_vblank_wq,
++					!atomic_read(&cmd_enc->pending_vblank_cnt),
++					KICKOFF_TIMEOUT_JIFFIES);
++			if (!ret)
++				DPU_ERROR_CMDENC(cmd_enc,
++					"first kickoff TE wait timed out, proceeding\n");
++			else
++				DPU_DEBUG_CMDENC(cmd_enc,
++					"first kickoff gated on TE edge\n");
++		}
++	}
++
+ 	DPU_DEBUG_CMDENC(cmd_enc, "pp:%d pending_cnt %d\n",
+ 			phys_enc->hw_pp->idx - PINGPONG_0,
+ 			atomic_read(&phys_enc->pending_kickoff_cnt));
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c
+index da3556eb6..0089c84c7 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c
+@@ -530,6 +530,18 @@ static void dpu_kms_wait_for_commit_done(struct msm_kms *kms,
+ 	}
+ }
+ 
++static int dpu_kms_acquire_link(struct msm_kms *kms,
++				struct drm_encoder *encoder)
++{
++	return dpu_encoder_acquire_link(encoder);
++}
++
++static void dpu_kms_release_link(struct msm_kms *kms,
++				 struct drm_encoder *encoder)
++{
++	dpu_encoder_release_link(encoder);
++}
++
+ static void dpu_kms_wait_flush(struct msm_kms *kms, unsigned crtc_mask)
+ {
+ 	struct dpu_kms *dpu_kms = to_dpu_kms(kms);
+@@ -1076,6 +1088,8 @@ static const struct msm_kms_funcs kms_funcs = {
+ 	.disable_commit  = dpu_kms_disable_commit,
+ 	.check_mode_changed = dpu_kms_check_mode_changed,
+ 	.flush_commit    = dpu_kms_flush_commit,
++	.acquire_link    = dpu_kms_acquire_link,
++	.release_link    = dpu_kms_release_link,
+ 	.wait_flush      = dpu_kms_wait_flush,
+ 	.complete_commit = dpu_kms_complete_commit,
+ 	.enable_vblank   = dpu_kms_enable_vblank,
+diff --git a/drivers/gpu/drm/msm/dsi/dsi.c b/drivers/gpu/drm/msm/dsi/dsi.c
+index 3c9f01ed6..4e71609ed 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi.c
++++ b/drivers/gpu/drm/msm/dsi/dsi.c
+@@ -236,6 +236,7 @@ int msm_dsi_modeset_init(struct msm_dsi *msm_dsi, struct drm_device *dev,
+ 	int ret;
+ 
+ 	msm_dsi->dev = dev;
++	msm_dsi->encoder = encoder;
+ 
+ 	ret = msm_dsi_host_modeset_init(msm_dsi->host, dev);
+ 	if (ret) {
+diff --git a/drivers/gpu/drm/msm/dsi/dsi.h b/drivers/gpu/drm/msm/dsi/dsi.h
+index 93c028a12..b638bbf65 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi.h
++++ b/drivers/gpu/drm/msm/dsi/dsi.h
+@@ -41,6 +41,9 @@ struct msm_dsi {
+ 
+ 	struct drm_bridge *next_bridge;
+ 
++	/* the encoder feeding this DSI, for link arbitration */
++	struct drm_encoder *encoder;
++
+ 	struct device *phy_dev;
+ 	bool phy_enabled;
+ 
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_manager.c b/drivers/gpu/drm/msm/dsi/dsi_manager.c
+index 959daa88b..9feed7985 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_manager.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_manager.c
+@@ -493,6 +493,51 @@ int msm_dsi_manager_connector_init(struct msm_dsi *msm_dsi,
+ 	return 0;
+ }
+ 
++/*
++ * A command-mode panel shares one DSI link between pixel data and DCS traffic.
++ * The DPU owns the link for the duration of a frame; a DCS command injected
++ * mid-frame corrupts the transfer, which on a DSC panel shows up as a
++ * scrambled screen -- e.g. dragging a brightness slider while the compositor
++ * is animating.
++ *
++ * Reserve the link, wait for the current frame, and hold the reservation until
++ * the command finishes. This closes both sides of the race: the command cannot
++ * start during a frame, and a new frame cannot start during the command.
++ */
++static int dsi_mgr_acquire_link(struct msm_dsi *msm_dsi)
++{
++	struct msm_drm_private *priv;
++	struct msm_kms *kms;
++
++	if (!msm_dsi_is_cmd_mode(msm_dsi) ||
++	    !msm_dsi->dev || !msm_dsi->encoder)
++		return 0;
++
++	priv = msm_dsi->dev->dev_private;
++	kms = priv->kms;
++
++	if (!kms || !kms->funcs->acquire_link || !kms->funcs->release_link)
++		return 0;
++
++	return kms->funcs->acquire_link(kms, msm_dsi->encoder);
++}
++
++static void dsi_mgr_release_link(struct msm_dsi *msm_dsi)
++{
++	struct msm_drm_private *priv;
++	struct msm_kms *kms;
++
++	if (!msm_dsi_is_cmd_mode(msm_dsi) ||
++	    !msm_dsi->dev || !msm_dsi->encoder)
++		return;
++
++	priv = msm_dsi->dev->dev_private;
++	kms = priv->kms;
++
++	if (kms && kms->funcs->acquire_link && kms->funcs->release_link)
++		kms->funcs->release_link(kms, msm_dsi->encoder);
++}
++
+ int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
+ {
+ 	struct msm_dsi *msm_dsi = dsi_mgr_get_dsi(id);
+@@ -513,12 +558,16 @@ int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
+ 	if (need_sync && (id == DSI_0))
+ 		return is_read ? msg->rx_len : msg->tx_len;
+ 
++	ret = dsi_mgr_acquire_link(msm_dsi);
++	if (ret)
++		return ret;
++
+ 	if (need_sync && msm_dsi0) {
+ 		ret = msm_dsi_host_xfer_prepare(msm_dsi0->host, msg);
+ 		if (ret) {
+ 			pr_err("%s: failed to prepare non-trigger host, %d\n",
+ 				__func__, ret);
+-			return ret;
++			goto release_link;
+ 		}
+ 	}
+ 	ret = msm_dsi_host_xfer_prepare(host, msg);
+@@ -536,6 +585,9 @@ int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
+ 	if (need_sync && msm_dsi0)
+ 		msm_dsi_host_xfer_restore(msm_dsi0->host, msg);
+ 
++release_link:
++	dsi_mgr_release_link(msm_dsi);
++
+ 	return ret;
+ }
+ 
+diff --git a/drivers/gpu/drm/msm/dsi/phy/dsi_phy_10nm.c b/drivers/gpu/drm/msm/dsi/phy/dsi_phy_10nm.c
+index ec486ff02..ed482fc3b 100644
+--- a/drivers/gpu/drm/msm/dsi/phy/dsi_phy_10nm.c
++++ b/drivers/gpu/drm/msm/dsi/phy/dsi_phy_10nm.c
+@@ -123,7 +123,7 @@ static void dsi_pll_calc_dec_frac(struct dsi_pll_10nm *pll, struct dsi_pll_confi
+ 
+ 	pll_freq = pll->vco_current_rate;
+ 
+-	divider = fref * 2;
++	divider = fref;
+ 
+ 	multiplier = 1 << FRAC_BITS;
+ 	dec_multiple = div_u64(pll_freq * multiplier, divider);
+@@ -431,12 +431,11 @@ static unsigned long dsi_pll_10nm_vco_recalc_rate(struct clk_hw *hw,
+ 	 *	1. Assumes prescaler is disabled
+ 	 */
+ 	multiplier = 1 << FRAC_BITS;
+-	pll_freq = dec * (ref_clk * 2);
+-	tmp64 = (ref_clk * 2 * frac);
++	pll_freq = dec * ref_clk;
++	tmp64 = ref_clk * frac;
+ 	pll_freq += div_u64(tmp64, multiplier);
+ 
+ 	vco_rate = pll_freq;
+-	pll_10nm->vco_current_rate = vco_rate;
+ 
+ 	DBG("DSI PLL%d returning vco rate = %lu, dec = %x, frac = %x",
+ 	    pll_10nm->phy->id, (unsigned long)vco_rate, dec, frac);
+diff --git a/drivers/gpu/drm/msm/msm_kms.h b/drivers/gpu/drm/msm/msm_kms.h
+index f25b31e50..f0f2c853a 100644
+--- a/drivers/gpu/drm/msm/msm_kms.h
++++ b/drivers/gpu/drm/msm/msm_kms.h
+@@ -101,6 +101,16 @@ struct msm_kms_funcs {
+ 	 * Format handling:
+ 	 */
+ 
++	/**
++	 * Reserve an encoder's display link for a non-commit caller, waiting for
++	 * any current frame to finish while preventing a new kickoff. On success
++	 * the caller must invoke ->release_link() after its transfer.
++	 *
++	 * The pair is optional. Implementations must provide both or neither.
++	 */
++	int (*acquire_link)(struct msm_kms *kms, struct drm_encoder *encoder);
++	void (*release_link)(struct msm_kms *kms, struct drm_encoder *encoder);
++
+ 	/* misc: */
+ 	long (*round_pixclk)(struct msm_kms *kms, unsigned long rate,
+ 			struct drm_encoder *encoder);

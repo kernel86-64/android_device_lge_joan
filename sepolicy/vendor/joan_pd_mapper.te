@@ -1,0 +1,8 @@
+type joan_pd_mapper, domain;
+type joan_pd_mapper_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(joan_pd_mapper)
+
+allow joan_pd_mapper self:qipcrtr_socket create_socket_perms_no_ioctl;
+allow joan_pd_mapper sysfs:dir r_dir_perms;
+allow joan_pd_mapper sysfs:file r_file_perms;
+r_dir_file(joan_pd_mapper, firmware_file)

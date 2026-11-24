@@ -1,0 +1,222 @@
+From 9216244886a678351efdb76f768ee575361f24fb Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Sun, 22 Nov 2026 15:43:26 +0300
+Subject: [PATCH 20/57] drm/msm/adreno: power the GX and MX domains on msm8998
+
+The generic driver core leaves the second GPU power domain unattached on msm8998, so gpu_gx stays off and enabling rbbmtimer fails with -EBUSY. Attach the gx and mx domains by name and power MX before GX around the GPU resume callback. Register VDD_GFX with the OPP core before adding the table so the board opp-microvolt is applied before the core clock is raised.
+---
+ drivers/gpu/drm/msm/adreno/adreno_device.c | 56 ++++++++++++++++++++-
+ drivers/gpu/drm/msm/adreno/adreno_gpu.c    | 58 ++++++++++++++++++++++
+ drivers/gpu/drm/msm/adreno/adreno_gpu.h    | 10 ++++
+ 3 files changed, 122 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/adreno/adreno_device.c b/drivers/gpu/drm/msm/adreno/adreno_device.c
+index 05c77fe27..ec1c9c4b6 100644
+--- a/drivers/gpu/drm/msm/adreno/adreno_device.c
++++ b/drivers/gpu/drm/msm/adreno/adreno_device.c
+@@ -6,6 +6,9 @@
+  * Copyright (c) 2014,2017 The Linux Foundation. All rights reserved.
+  */
+ 
++#include <linux/pm_domain.h>
++#include <linux/pm_runtime.h>
++
+ #include "adreno_gpu.h"
+ 
+ bool hang_debug = false;
+@@ -304,18 +307,61 @@ static const struct of_device_id dt_match[] = {
+ };
+ MODULE_DEVICE_TABLE(of, dt_match);
+ 
++/*
++ * Power the domains attached by adreno_attach_pm_domains(), if any. MX goes
++ * first and comes down last; it is powered at no performance level until the
++ * resume callback's dev_pm_opp_set_rate() votes the level of the OPP.
++ */
++static int adreno_pm_domains_get(struct adreno_gpu *adreno_gpu)
++{
++	int ret;
++
++	if (!adreno_gpu->gx_pd || !adreno_gpu->mx_pd)
++		return 0;
++
++	ret = pm_runtime_resume_and_get(adreno_gpu->mx_pd->pd_devs[0]);
++	if (ret)
++		return ret;
++
++	ret = pm_runtime_resume_and_get(adreno_gpu->gx_pd->pd_devs[0]);
++	if (ret)
++		pm_runtime_put_sync(adreno_gpu->mx_pd->pd_devs[0]);
++
++	return ret;
++}
++
++static void adreno_pm_domains_put(struct adreno_gpu *adreno_gpu)
++{
++	if (!adreno_gpu->gx_pd || !adreno_gpu->mx_pd)
++		return;
++
++	pm_runtime_put_sync(adreno_gpu->gx_pd->pd_devs[0]);
++	pm_runtime_put_sync(adreno_gpu->mx_pd->pd_devs[0]);
++}
++
+ static int adreno_runtime_resume(struct device *dev)
+ {
+ 	struct msm_gpu *gpu = dev_to_gpu(dev);
+-	int ret = gpu->funcs->pm_resume(gpu);
++	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
++	int ret;
++
++	ret = adreno_pm_domains_get(adreno_gpu);
++	if (ret)
++		return ret;
++
++	ret = gpu->funcs->pm_resume(gpu);
+ 	if (!ret)
+ 		ret = msm_perfcntr_resume(gpu);
++	if (ret)
++		adreno_pm_domains_put(adreno_gpu);
+ 	return ret;
+ }
+ 
+ static int adreno_runtime_suspend(struct device *dev)
+ {
+ 	struct msm_gpu *gpu = dev_to_gpu(dev);
++	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
++	int ret;
+ 
+ 	/*
+ 	 * We should be holding a runpm ref, which will prevent
+@@ -326,7 +372,13 @@ static int adreno_runtime_suspend(struct device *dev)
+ 
+ 	msm_perfcntr_suspend(gpu);
+ 
+-	return gpu->funcs->pm_suspend(gpu);
++	ret = gpu->funcs->pm_suspend(gpu);
++	if (ret)
++		return ret;
++
++	adreno_pm_domains_put(adreno_gpu);
++
++	return 0;
+ }
+ 
+ static void suspend_scheduler(struct msm_gpu *gpu)
+diff --git a/drivers/gpu/drm/msm/adreno/adreno_gpu.c b/drivers/gpu/drm/msm/adreno/adreno_gpu.c
+index 5832dc25d..d3d97b823 100644
+--- a/drivers/gpu/drm/msm/adreno/adreno_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/adreno_gpu.c
+@@ -12,6 +12,7 @@
+ #include <linux/firmware/qcom/qcom_scm.h>
+ #include <linux/kernel.h>
+ #include <linux/of_reserved_mem.h>
++#include <linux/pm_domain.h>
+ #include <linux/pm_opp.h>
+ #include <linux/slab.h>
+ #include <linux/soc/qcom/mdt_loader.h>
+@@ -1103,6 +1104,45 @@ void adreno_wait_ring(struct msm_ringbuffer *ring, uint32_t ndwords)
+ 			ring->id);
+ }
+ 
++/*
++ * The generic driver core attaches only the GPU's first power domain, while
++ * msm8998 names both GX and MX.  Attach them by name, without device links,
++ * so adreno_runtime_resume() can power MX first and then GX around the GPU's
++ * own resume callback.
++ */
++static int adreno_attach_pm_domains(struct device *dev,
++				    struct adreno_gpu *adreno_gpu)
++{
++	static const char * const gx_name[] = { "gx" };
++	static const char * const mx_name[] = { "mx" };
++	const struct dev_pm_domain_attach_data gx_data = {
++		.pd_names = gx_name,
++		.num_pd_names = ARRAY_SIZE(gx_name),
++		.pd_flags = PD_FLAG_NO_DEV_LINK,
++	};
++	const struct dev_pm_domain_attach_data mx_data = {
++		.pd_names = mx_name,
++		.num_pd_names = ARRAY_SIZE(mx_name),
++		.pd_flags = PD_FLAG_NO_DEV_LINK | PD_FLAG_REQUIRED_OPP,
++	};
++	int ret;
++
++	/* A lone power domain has already been attached by the driver core */
++	if (dev->pm_domain ||
++	    of_property_match_string(dev->of_node, "power-domain-names", "mx") < 0)
++		return 0;
++
++	ret = devm_pm_domain_attach_list(dev, &gx_data, &adreno_gpu->gx_pd);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "Unable to attach the GX power domain\n");
++
++	ret = devm_pm_domain_attach_list(dev, &mx_data, &adreno_gpu->mx_pd);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "Unable to attach the MX power domain\n");
++
++	return 0;
++}
++
+ static int adreno_get_pwrlevels(struct device *dev,
+ 		struct msm_gpu *gpu)
+ {
+@@ -1113,6 +1153,20 @@ static int adreno_get_pwrlevels(struct device *dev,
+ 
+ 	gpu->fast_rate = 0;
+ 
++	/*
++	 * Register VDD_GFX with the OPP framework before the table is added,
++	 * so dev_pm_opp_set_rate() applies the board's opp-microvolt before
++	 * raising the core clock.  The OPP core rejects this later (-EBUSY).
++	 */
++	if (device_property_present(dev, "vdd-supply")) {
++		const char * const supply_names[] = { "vdd", NULL };
++
++		ret = devm_pm_opp_set_regulators(dev, supply_names);
++		if (ret)
++			return dev_err_probe(dev, ret,
++					     "Unable to register OPP regulators\n");
++	}
++
+ 	/* devm_pm_opp_of_add_table may error out but will still create an OPP table */
+ 	ret = devm_pm_opp_of_add_table(dev);
+ 	if (ret == -ENODEV) {
+@@ -1237,6 +1291,10 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
+ 
+ 	adreno_gpu_config.nr_rings = nr_rings;
+ 
++	ret = adreno_attach_pm_domains(dev, adreno_gpu);
++	if (ret)
++		return ret;
++
+ 	ret = adreno_get_pwrlevels(dev, gpu);
+ 	if (ret)
+ 		return ret;
+diff --git a/drivers/gpu/drm/msm/adreno/adreno_gpu.h b/drivers/gpu/drm/msm/adreno/adreno_gpu.h
+index 114a40f79..61f797e6f 100644
+--- a/drivers/gpu/drm/msm/adreno/adreno_gpu.h
++++ b/drivers/gpu/drm/msm/adreno/adreno_gpu.h
+@@ -19,6 +19,8 @@
+ #include "adreno_common.xml.h"
+ #include "adreno_pm4.xml.h"
+ 
++struct dev_pm_domain_list;
++
+ extern bool snapshot_debugbus;
+ 
+ enum {
+@@ -249,6 +251,14 @@ struct adreno_gpu {
+ 	bool has_ray_tracing;
+ 
+ 	u64 uche_trap_base;
++
++	/*
++	 * GX and MX power domains, for a GPU that names an MX domain next to
++	 * its GX domain (see adreno_attach_pm_domains()). NULL when the driver
++	 * core attached the GPU to a single power domain itself.
++	 */
++	struct dev_pm_domain_list *gx_pd;
++	struct dev_pm_domain_list *mx_pd;
+ };
+ #define to_adreno_gpu(x) container_of(x, struct adreno_gpu, base)
+ 

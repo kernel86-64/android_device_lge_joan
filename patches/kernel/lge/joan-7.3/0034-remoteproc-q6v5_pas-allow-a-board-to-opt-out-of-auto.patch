@@ -1,0 +1,32 @@
+From 0bbdc3d3a52c94def830968b32c79a4eada20b18 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 19:00:12 +0300
+Subject: [PATCH 34/57] remoteproc: q6v5_pas: allow a board to opt out of
+ auto-boot
+
+Some boards can only start the ADSP after userspace has mounted the
+firmware partition and started the rmtfs/tqftpserv clients. Honour a
+"qcom,no-auto-boot" property so such a board can start the instance from
+userspace while every other PAS instance keeps booting at probe.
+---
+ drivers/remoteproc/qcom_q6v5_pas.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/remoteproc/qcom_q6v5_pas.c b/drivers/remoteproc/qcom_q6v5_pas.c
+index a005546c2..6362310b3 100644
+--- a/drivers/remoteproc/qcom_q6v5_pas.c
++++ b/drivers/remoteproc/qcom_q6v5_pas.c
+@@ -860,7 +860,12 @@ static int qcom_pas_probe(struct platform_device *pdev)
+ 	}
+ 
+ 	rproc->has_iommu = of_property_present(pdev->dev.of_node, "iommus");
+-	rproc->auto_boot = desc->auto_boot;
++	/*
++	 * Some boards start the ADSP after userspace services are ready.
++	 * Other PAS instances, including the sensor DSP, still boot at probe.
++	 */
++	rproc->auto_boot = desc->auto_boot &&
++			   !of_property_read_bool(pdev->dev.of_node, "qcom,no-auto-boot");
+ 	rproc_coredump_set_elf_info(rproc, ELFCLASS32, EM_NONE);
+ 
+ 	pas = rproc->priv;

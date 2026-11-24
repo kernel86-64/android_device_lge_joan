@@ -35,7 +35,7 @@ on init
     # (see rootdir/bin/joan_rprocs.sh). joan_rprocs loads them, and the QMI
     # clients that need them (ath10k, SLIMbus NGD), after boot_completed.
     exec u:r:vendor_modprobe:s0 -- /vendor/bin/modprobe -a -d /vendor/lib/modules \
-        venus_core venus_dec venus_enc ipa hci_uart
+        venus_core venus_dec venus_enc hci_uart
     write /dev/cpuset/foreground/cpus 0-7
     write /dev/cpuset/background/cpus 0-3
     write /dev/cpuset/system-background/cpus 0-3
@@ -57,6 +57,12 @@ on post-fs-data
     mkdir /data/vendor/tmp 0770 system system
     mkdir /data/vendor/tmp/tqftpserv 0770 system system
     mkdir /data/vendor/time 0770 system system
+    # The IPA firmware is only reachable through /vendor/firmware symlinks
+    # into firmware_mnt, which late-fs mounts. Loading it from "on init"
+    # fails the probe with -ENOENT and, because the module stays loaded, the
+    # device is never re-probed; the modem then has no data path and its
+    # IPA callback times out. Load it here, before joan_rprocs starts MPSS.
+    exec u:r:vendor_modprobe:s0 -- /vendor/bin/modprobe -d /vendor/lib/modules ipa
     # Start only after /data is mounted; capture existing log buffers as well.
     start joan_bootlog
 
@@ -87,8 +93,9 @@ on boot
     start tqftpserv
     # The SLPI must be up before the framework reads the sensor list, and it
     # asks for its registry while it boots: publish the registry, then load
-    # the PAS driver. The ADSP opts out of auto-boot (qcom,no-auto-boot in
-    # the DT); joan_rprocs starts it later.
+    # the PAS driver. Both the SLPI and the ADSP boot at probe; the ADSP
+    # firmware lives in /vendor/firmware, so it does not need firmware_mnt.
+    # joan_rprocs only starts an ADSP that is still offline.
     start vendor.sns-reg
     exec_background u:r:vendor_modprobe:s0 root root -- /vendor/bin/modprobe -d /vendor/lib/modules qcom_q6v5_pas
     # Modem, ADSP and their QMI clients, once userspace is up.
@@ -131,7 +138,9 @@ on charger
     setprop vendor.powerhal.init 1
 
 # Remote filesystem service for the modem (EFS on modemst1/modemst2/fsg).
-service rmtfs /vendor/bin/rmtfs -o /dev/block/by-name -P -r
+# The modem writes its EFS during initialisation (fsg -> modemst, calibration),
+# so do not use -r: read-only makes the modem stall until its DOG fires.
+service rmtfs /vendor/bin/rmtfs -o /dev/block/by-name -P
     class core
     user root
     group system
@@ -139,6 +148,15 @@ service rmtfs /vendor/bin/rmtfs -o /dev/block/by-name -P -r
 
 # TFTP server the modem uses to read its config files.
 service tqftpserv /vendor/bin/tqftpserv
+    class core
+    user root
+    group system
+    disabled
+
+# Userspace protection-domain mapper. It reads the .jsn descriptors that sit
+# next to each remoteproc's firmware and publishes the SERVREG locator, which
+# the in-kernel mapper cannot express (tms/servreg, tms/pdr_enabled, wlan/fw).
+service pd-mapper /vendor/bin/pd-mapper
     class core
     user root
     group system

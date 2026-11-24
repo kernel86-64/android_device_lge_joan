@@ -1,0 +1,47 @@
+From d066bd2a92bd75627405b5b5b95c14a6b9426a30 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 22:16:32 +0300
+Subject: [PATCH 46/57] soc: qcom: smp2p: preserve edge state between restart
+ notifications
+
+The SSR handshake clears the cached inbound values so the first
+notification after a remote restart is compared against zero. Clearing
+them on every notification causes unchanged high bits to be reported as
+fresh rising edges.
+
+The LG H930DS modem trace showed repeated ready and handover edges
+while the slave-kernel entry stayed at 0x6. Only clear the cached values
+when the remote restart bit differs from the acknowledged value.
+---
+ drivers/soc/qcom/smp2p.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/soc/qcom/smp2p.c b/drivers/soc/qcom/smp2p.c
+index af0ceeaf6..9d2d1c378 100644
+--- a/drivers/soc/qcom/smp2p.c
++++ b/drivers/soc/qcom/smp2p.c
+@@ -187,20 +187,21 @@ static bool qcom_smp2p_check_ssr(struct qcom_smp2p *smp2p)
+ 	struct smp2p_smem_item *in = smp2p->in;
+ 	struct smp2p_entry *entry;
+ 	bool restart_done;
+-	bool restart;
+ 
+ 	if (!smp2p->ssr_ack_enabled)
+ 		return false;
+ 
+ 	restart_done = in->flags & BIT(SMP2P_FLAGS_RESTART_DONE_BIT);
+-	restart = restart_done != smp2p->ssr_ack;
++	if (restart_done == smp2p->ssr_ack)
++		return false;
++
+ 	list_for_each_entry(entry, &smp2p->inbound, node) {
+ 		if (!entry->value)
+ 			continue;
+ 		entry->last_value = 0;
+ 	}
+ 
+-	return restart;
++	return true;
+ }
+ 
+ static void qcom_smp2p_do_ssr_ack(struct qcom_smp2p *smp2p)

@@ -1,0 +1,56 @@
+From d2a9830cff8ea7b45032e99dd67262d05e180f19 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Sun, 22 Nov 2026 15:57:02 +0300
+Subject: [PATCH 24/57] drm/msm/a5xx: disable preemption by default on joan
+
+A5xx preemption records do not carry SMMU state, while msm8998's per-process pagetables require a TTBR0 update per submit. A preempted ring can resume against another process's TTBR0, producing translation faults and corrupted composition. Use one ring unless a5xx_enable_preemption is explicitly set.
+---
+ drivers/gpu/drm/msm/adreno/a5xx_gpu.c | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a5xx_gpu.c b/drivers/gpu/drm/msm/adreno/a5xx_gpu.c
+index 5d96b8f63..effecc25f 100644
+--- a/drivers/gpu/drm/msm/adreno/a5xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a5xx_gpu.c
+@@ -6,6 +6,7 @@
+ #include <linux/types.h>
+ #include <linux/cpumask.h>
+ #include <linux/firmware/qcom/qcom_pas.h>
++#include <linux/moduleparam.h>
+ #include <linux/pm_opp.h>
+ #include <linux/nvmem-consumer.h>
+ #include <linux/slab.h>
+@@ -16,6 +17,23 @@
+ extern bool hang_debug;
+ static void a5xx_dump(struct msm_gpu *gpu);
+ 
++/*
++ * A5xx preemption and per-process pagetables are mutually exclusive here.
++ *
++ * a5xx_preempt_hw_init() programs CP_CONTEXT_SWITCH_SMMU_INFO = 0, i.e. "we
++ * aren't switching pagetables".  msm8998 cannot use TTBR1, so a private VM
++ * emits a CP_SMMU_TABLE_UPDATE on submit.  A ring restored by preemption
++ * resumes mid-ring without replaying that packet and the preemption record
++ * carries no SMMU information, so it runs against whichever TTBR0 the ring
++ * it preempted away from left installed.  That produces GPU translation
++ * faults and corrupted composition.  Keep preemption off by default until
++ * the preemption record can carry the SMMU state.
++ */
++static bool a5xx_enable_preemption;
++MODULE_PARM_DESC(a5xx_enable_preemption,
++		 "Enable preemption (A5XX only; broken while per-process pagetables are on)");
++module_param(a5xx_enable_preemption, bool, 0600);
++
+ #define GPU_PAS_ID 13
+ 
+ static void update_shadow_rptr(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
+@@ -1749,6 +1767,9 @@ static struct msm_gpu *a5xx_gpu_init(struct drm_device *dev)
+ 	if (config->info->revn == 510)
+ 		nr_rings = 1;
+ 
++	if (!a5xx_enable_preemption)
++		nr_rings = 1;
++
+ 	ret = adreno_gpu_init(dev, pdev, adreno_gpu, config->info->funcs, nr_rings);
+ 	if (ret) {
+ 		a5xx_destroy(&(a5xx_gpu->base.base));

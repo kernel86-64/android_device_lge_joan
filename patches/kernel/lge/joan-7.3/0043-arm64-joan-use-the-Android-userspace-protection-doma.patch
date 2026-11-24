@@ -1,0 +1,43 @@
+From 8216a49e0464c1074d06851032d980b1acc47307 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 22:19:47 +0300
+Subject: [PATCH 43/57] arm64: joan: use the Android userspace
+ protection-domain mapper
+
+Record the radio boot configuration used by the H930DS userpd image. Let the userspace mapper read the stock firmware descriptors and own the locator, and keep the ADSP offline until init starts it.
+---
+ arch/arm64/boot/dts/qcom/msm8998-lg-joan.dts | 7 ++++---
+ arch/arm64/configs/joan_defconfig            | 2 +-
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/msm8998-lg-joan.dts b/arch/arm64/boot/dts/qcom/msm8998-lg-joan.dts
+index 946d41f06..8231ee933 100644
+--- a/arch/arm64/boot/dts/qcom/msm8998-lg-joan.dts
++++ b/arch/arm64/boot/dts/qcom/msm8998-lg-joan.dts
+@@ -1892,9 +1892,10 @@ swm: soundwire@c85 {
+ 
+ &remoteproc_adsp {
+ 	/*
+-	 * joan_rprocs.sh starts the ADSP once the filesystem services and
+-	 * Wi-Fi are ready; the SLPI shares the driver and must boot early,
+-	 * before the framework reads the sensor list.
++	 * joan_rprocs loads this driver to register the rproc (so pd-mapper can
++	 * read adsp*.jsn), starts the userspace pd-mapper, and only then
++	 * starts the ADSP. Booting at probe would race the locator, so keep it
++	 * offline until userspace asks for it.
+ 	 */
+ 	qcom,no-auto-boot;
+ 	firmware-name = "qcom/msm8998/joan/adsp.mdt";
+diff --git a/arch/arm64/configs/joan_defconfig b/arch/arm64/configs/joan_defconfig
+index 54d5b28e4..a2a7b9050 100644
+--- a/arch/arm64/configs/joan_defconfig
++++ b/arch/arm64/configs/joan_defconfig
+@@ -1280,7 +1280,7 @@ CONFIG_QCOM_COMMAND_DB=y
+ CONFIG_QCOM_GENI_SE=y
+ CONFIG_QCOM_LLCC=y
+ CONFIG_QCOM_OCMEM=y
+-CONFIG_QCOM_PD_MAPPER=y
++# CONFIG_QCOM_PD_MAPPER is not set
+ CONFIG_QCOM_PMIC_GLINK=m
+ CONFIG_QCOM_RMTFS_MEM=y
+ CONFIG_QCOM_RPMH=y

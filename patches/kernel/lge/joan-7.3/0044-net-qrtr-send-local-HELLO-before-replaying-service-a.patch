@@ -1,0 +1,120 @@
+From ef0dfa2b049eefad1b62e5d35cb0d073877a9191 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 22:31:50 +0300
+Subject: [PATCH 44/57] net: qrtr: send local HELLO before replaying service
+ announcements
+
+A peer can deliver its HELLO before the asynchronous endpoint HELLO runs. In that window announce_servers() gives up on the first NEW_SERVER because the transport rejects non-HELLO packets with EAGAIN. Send the pending local HELLO before replaying the names for that peer. This keeps the endpoint gate and retry behavior in place.
+---
+ net/qrtr/af_qrtr.c | 49 ++++++++++++++++++++++++++++++++++------------
+ net/qrtr/ns.c      |  9 +++++++++
+ net/qrtr/qrtr.h    |  2 ++
+ 3 files changed, 48 insertions(+), 12 deletions(-)
+
+diff --git a/net/qrtr/af_qrtr.c b/net/qrtr/af_qrtr.c
+index e7b364742..b1e898403 100644
+--- a/net/qrtr/af_qrtr.c
++++ b/net/qrtr/af_qrtr.c
+@@ -591,14 +591,48 @@ static struct sk_buff *qrtr_alloc_ctrl_packet(struct qrtr_ctrl_pkt **pkt,
+ 	return skb;
+ }
+ 
+-static void qrtr_hello_work(struct work_struct *work)
++static int qrtr_send_hello(struct qrtr_node *node)
+ {
+ 	struct sockaddr_qrtr from = {AF_QIPCRTR, 0, QRTR_PORT_CTRL};
+ 	struct sockaddr_qrtr to = {AF_QIPCRTR, 0, QRTR_PORT_CTRL};
+ 	struct qrtr_ctrl_pkt *pkt;
++	struct sk_buff *skb;
++
++	skb = qrtr_alloc_ctrl_packet(&pkt, GFP_KERNEL);
++	if (!skb)
++		return -ENOMEM;
++
++	pkt->cmd = cpu_to_le32(QRTR_TYPE_HELLO);
++	from.sq_node = qrtr_local_nid;
++	to.sq_node = READ_ONCE(node->nid);
++	return qrtr_node_enqueue(node, skb, QRTR_TYPE_HELLO, &from, &to);
++}
++
++int qrtr_ensure_hello(unsigned int nid)
++{
++	struct qrtr_node *node;
++	bool sent;
++	int ret = 0;
++
++	node = qrtr_node_lookup(nid);
++	if (!node)
++		return -ENODEV;
++
++	mutex_lock(&node->ep_lock);
++	sent = node->hello_sent;
++	mutex_unlock(&node->ep_lock);
++
++	if (!sent)
++		ret = qrtr_send_hello(node);
++
++	qrtr_node_release(node);
++	return ret;
++}
++
++static void qrtr_hello_work(struct work_struct *work)
++{
+ 	struct qrtr_node *node;
+ 	struct qrtr_sock *ctrl;
+-	struct sk_buff *skb;
+ 
+ 	node = container_of(to_delayed_work(work), struct qrtr_node, say_hello);
+ 
+@@ -609,17 +643,8 @@ static void qrtr_hello_work(struct work_struct *work)
+ 		return;
+ 	}
+ 
+-	skb = qrtr_alloc_ctrl_packet(&pkt, GFP_KERNEL);
+-	if (!skb) {
+-		qrtr_port_put(ctrl);
++	if (qrtr_send_hello(node) == -ENOMEM)
+ 		schedule_delayed_work(&node->say_hello, msecs_to_jiffies(100));
+-		return;
+-	}
+-
+-	pkt->cmd = cpu_to_le32(QRTR_TYPE_HELLO);
+-	from.sq_node = qrtr_local_nid;
+-	to.sq_node = node->nid;
+-	qrtr_node_enqueue(node, skb, QRTR_TYPE_HELLO, &from, &to);
+ 	qrtr_port_put(ctrl);
+ }
+ 
+diff --git a/net/qrtr/ns.c b/net/qrtr/ns.c
+index bcb090ee7..7e729966d 100644
+--- a/net/qrtr/ns.c
++++ b/net/qrtr/ns.c
+@@ -329,6 +329,15 @@ static int server_del(struct qrtr_node *node, unsigned int port, bool bcast)
+ 
+ static int ctrl_cmd_hello(struct sockaddr_qrtr *sq)
+ {
++	int ret;
++
++	/* A peer can send HELLO before our endpoint's delayed work runs. */
++	if (sq->sq_node != qrtr_ns.local_node) {
++		ret = qrtr_ensure_hello(sq->sq_node);
++		if (ret)
++			return ret;
++	}
++
+ 	return announce_servers(sq);
+ }
+ 
+diff --git a/net/qrtr/qrtr.h b/net/qrtr/qrtr.h
+index de2de69a6..ba81c12c5 100644
+--- a/net/qrtr/qrtr.h
++++ b/net/qrtr/qrtr.h
+@@ -31,6 +31,8 @@ void qrtr_endpoint_hello(struct qrtr_endpoint *ep);
+ 
+ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len);
+ 
++int qrtr_ensure_hello(unsigned int nid);
++
+ int qrtr_ns_init(void);
+ 
+ void qrtr_ns_remove(void);

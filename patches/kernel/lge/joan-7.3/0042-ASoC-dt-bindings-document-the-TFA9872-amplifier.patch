@@ -1,0 +1,21 @@
+From e2914792598761dfd90d11b4ff4cd7f5e1dc3ce2 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 22:19:39 +0300
+Subject: [PATCH 42/57] ASoC: dt-bindings: document the TFA9872 amplifier
+
+---
+ Documentation/devicetree/bindings/sound/nxp,tfa989x.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/sound/nxp,tfa989x.yaml b/Documentation/devicetree/bindings/sound/nxp,tfa989x.yaml
+index fd2415e23..b637e8524 100644
+--- a/Documentation/devicetree/bindings/sound/nxp,tfa989x.yaml
++++ b/Documentation/devicetree/bindings/sound/nxp,tfa989x.yaml
+@@ -15,6 +15,7 @@ allOf:
+ properties:
+   compatible:
+     enum:
++      - nxp,tfa9872
+       - nxp,tfa9890
+       - nxp,tfa9895
+       - nxp,tfa9897

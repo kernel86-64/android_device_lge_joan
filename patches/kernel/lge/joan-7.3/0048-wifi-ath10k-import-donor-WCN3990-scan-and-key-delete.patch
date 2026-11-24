@@ -1,0 +1,119 @@
+From f007dceb2467d45be1d665ad8d357d80306ac095 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 00:25:30 +0300
+Subject: [PATCH 48/57] wifi: ath10k: import donor WCN3990 scan and key-delete
+ fixes
+
+Port the donor WCN3990 fixes: disable unsupported 5 GHz 5845 MHz scan
+channel (which otherwise crashes the WCN3990 firmware on first scan) and
+support qcom,skip-pairwise-delete-key-wait.
+---
+ drivers/net/wireless/ath/ath10k/core.c |  1 +
+ drivers/net/wireless/ath/ath10k/core.h |  1 +
+ drivers/net/wireless/ath/ath10k/hw.h   |  5 +++++
+ drivers/net/wireless/ath/ath10k/mac.c  | 29 ++++++++++++++++++++++++++
+ drivers/net/wireless/ath/ath10k/snoc.c |  4 ++++
+ 5 files changed, 40 insertions(+)
+
+diff --git a/drivers/net/wireless/ath/ath10k/core.c b/drivers/net/wireless/ath/ath10k/core.c
+index 7c2939cbd..2d046f16b 100644
+--- a/drivers/net/wireless/ath/ath10k/core.c
++++ b/drivers/net/wireless/ath/ath10k/core.c
+@@ -737,6 +737,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
+ 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL_DUAL_MAC,
+ 		.shadow_reg_support = true,
+ 		.rri_on_ddr = true,
++		.unsupported_5ghz_freq = 5845,
+ 		.hw_filter_reset_required = false,
+ 		.fw_diag_ce_download = false,
+ 		.credit_size_workaround = false,
+diff --git a/drivers/net/wireless/ath/ath10k/core.h b/drivers/net/wireless/ath/ath10k/core.h
+index dfee43261..74a39eae9 100644
+--- a/drivers/net/wireless/ath/ath10k/core.h
++++ b/drivers/net/wireless/ath/ath10k/core.h
+@@ -1082,6 +1082,7 @@ struct ath10k {
+ 	const struct ath10k_fw_components *running_fw;
+ 
+ 	const char *board_name;
++	bool skip_pairwise_delete_key_wait;
+ 
+ 	const struct firmware *pre_cal_file;
+ 	const struct firmware *cal_file;
+diff --git a/drivers/net/wireless/ath/ath10k/hw.h b/drivers/net/wireless/ath/ath10k/hw.h
+index cd468b24b..7564e8b3e 100644
+--- a/drivers/net/wireless/ath/ath10k/hw.h
++++ b/drivers/net/wireless/ath/ath10k/hw.h
+@@ -638,6 +638,11 @@ struct ath10k_hw_params {
+ 
+ 	/* The hardware support multicast frame registrations */
+ 	bool mcast_frame_registration;
++
++	/* Center frequency in MHz of a 5 GHz channel this firmware cannot
++	 * handle in a scan request, or 0 if every channel is supported.
++	 */
++	u16 unsupported_5ghz_freq;
+ };
+ 
+ struct htt_resp;
+diff --git a/drivers/net/wireless/ath/ath10k/mac.c b/drivers/net/wireless/ath/ath10k/mac.c
+index 8e604697d..839cb7d12 100644
+--- a/drivers/net/wireless/ath/ath10k/mac.c
++++ b/drivers/net/wireless/ath/ath10k/mac.c
+@@ -324,6 +324,20 @@ static int ath10k_install_key(struct ath10k_vif *arvif,
+ 	if (ret)
+ 		return ret;
+ 
++	/* The tested WCN3990 firmware did not provide a matching completion
++	 * before the driver timeout after deleting a pairwise key. Qualcomm's
++	 * downstream driver also reports key commands complete without waiting
++	 * for this indication. Keep waiting for real key installs and group-key
++	 * replacement, but avoid three seconds of teardown latency here.
++	 */
++	if (cmd == DISABLE_KEY && !(flags & WMI_KEY_GROUP) &&
++	    ar->skip_pairwise_delete_key_wait) {
++		ath10k_dbg(ar, ATH10K_DBG_MAC,
++			   "mac skip pairwise delete key completion wait vdev %i peer %pM\n",
++			   arvif->vdev_id, macaddr);
++		return 0;
++	}
++
+ 	time_left = wait_for_completion_timeout(&ar->install_key_done, 3 * HZ);
+ 	if (time_left == 0)
+ 		return -ETIMEDOUT;
+@@ -3556,6 +3570,21 @@ static void ath10k_mac_update_channel_list(struct ath10k *ar,
+ 					IEEE80211_CHAN_DISABLED;
+ 		}
+ 	}
++
++	/* Withhold a channel the firmware cannot be asked to scan. This has
++	 * to happen here rather than once at registration time: ath10k
++	 * requests its own regulatory domain with REGULATORY_STRICT_REG, and
++	 * for such a driver the regulatory core rebuilds both flags and
++	 * orig_flags from the rule, which would clear the bit again.
++	 */
++	if (ar->hw_params.unsupported_5ghz_freq) {
++		for (i = 0; i < band->n_channels; i++) {
++			if (band->channels[i].center_freq ==
++			    ar->hw_params.unsupported_5ghz_freq)
++				band->channels[i].flags |=
++					IEEE80211_CHAN_DISABLED;
++		}
++	}
+ }
+ 
+ static void ath10k_reg_notifier(struct wiphy *wiphy,
+diff --git a/drivers/net/wireless/ath/ath10k/snoc.c b/drivers/net/wireless/ath/ath10k/snoc.c
+index 8de133fe2..79eaaf388 100644
+--- a/drivers/net/wireless/ath/ath10k/snoc.c
++++ b/drivers/net/wireless/ath/ath10k/snoc.c
+@@ -1366,6 +1366,10 @@ static void ath10k_snoc_quirks_init(struct ath10k *ar)
+ 
+ 	if (of_property_read_bool(dev->of_node, "qcom,snoc-host-cap-skip-quirk"))
+ 		set_bit(ATH10K_SNOC_FLAG_SKIP_HOST_CAP_QUIRK, &ar_snoc->flags);
++
++	ar->skip_pairwise_delete_key_wait =
++		of_property_read_bool(dev->of_node,
++				      "qcom,skip-pairwise-delete-key-wait");
+ }
+ 
+ int ath10k_snoc_fw_indication(struct ath10k *ar, u64 type)

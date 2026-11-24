@@ -1,0 +1,30 @@
+From 3e9ab37c7f5be9a11f57423386d30d246f10b7f1 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Sun, 22 Nov 2026 16:17:28 +0300
+Subject: [PATCH 31/57] slimbus: qcom-ngd: wait 3 s for the ADSP QMI handshake
+
+The 1 s select-instance timeout is shorter than the ADSP needs while it is initialising, so WCD934x never appears and the sound card stays deferred. Use the 3 s board value from the working 6.18 tree.
+---
+ drivers/slimbus/qcom-ngd-ctrl.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/slimbus/qcom-ngd-ctrl.c b/drivers/slimbus/qcom-ngd-ctrl.c
+index 6e8941571..2900d9ae7 100644
+--- a/drivers/slimbus/qcom-ngd-ctrl.c
++++ b/drivers/slimbus/qcom-ngd-ctrl.c
+@@ -62,8 +62,13 @@
+ #define SLIMBUS_QMI_SELECT_INSTANCE_REQ_MAX_MSG_LEN	14
+ #define SLIMBUS_QMI_SELECT_INSTANCE_RESP_MAX_MSG_LEN	7
+ #define SLIMBUS_QMI_CHECK_FRAMER_STAT_RESP_MAX_MSG_LEN	7
+-/* QMI response timeout of 500ms */
+-#define SLIMBUS_QMI_RESP_TOUT	1000
++/*
++ * QMI response timeout.  The ADSP can take well over a second to answer
++ * while it is still initialising; downstream's msm8998 kernel carries 3 s
++ * here as a board workaround.  With 1 s the select-instance handshake is
++ * lost and WCD934x never probes.
++ */
++#define SLIMBUS_QMI_RESP_TOUT	3000
+ 
+ /* User defined commands */
+ #define SLIM_USR_MC_GENERIC_ACK	0x25

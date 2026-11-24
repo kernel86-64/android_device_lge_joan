@@ -1,0 +1,30 @@
+From 8da65f3b9c5f713724afa772c5792c9c168b1b11 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 00:39:22 +0300
+Subject: [PATCH 55/57] clk: qcom: mmcc-msm8998: mark mnoc_ahb_clk critical
+
+i2c-qcom-cci probes before mmssnoc/display enables mnoc_ahb_clk, causing
+camss_ahb_clk to time out (-EBUSY, status stuck at 'off') and abort CCI
+probe. Mark mnoc_ahb_clk as CLK_IS_CRITICAL alongside fd_ahb_clk.
+---
+ drivers/clk/qcom/mmcc-msm8998.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/qcom/mmcc-msm8998.c b/drivers/clk/qcom/mmcc-msm8998.c
+index 2675f2656..23c2e2562 100644
+--- a/drivers/clk/qcom/mmcc-msm8998.c
++++ b/drivers/clk/qcom/mmcc-msm8998.c
+@@ -2486,7 +2486,12 @@ static struct clk_branch mnoc_ahb_clk = {
+ 			.parent_hws = (const struct clk_hw *[]){ &ahb_clk_src.clkr.hw },
+ 			.num_parents = 1,
+ 			.ops = &clk_branch2_ops,
+-			.flags = CLK_SET_RATE_PARENT,
++			/*
++			 * Needed before mmssnoc/display probe so early MMSS
++			 * consumers such as i2c-qcom-cci can enable
++			 * camss_ahb_clk without timing out.
++			 */
++			.flags = CLK_IS_CRITICAL | CLK_SET_RATE_PARENT,
+ 		},
+ 	},
+ };

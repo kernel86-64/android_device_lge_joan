@@ -1,0 +1,22 @@
+From 6ab92e5b74d2a07237b4a8807698d9c8641de073 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 22:16:53 +0300
+Subject: [PATCH 41/57] ASoC: codecs: use the 7.3 control accessor for TFA9872
+
+---
+ sound/soc/codecs/tfa989x.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sound/soc/codecs/tfa989x.c b/sound/soc/codecs/tfa989x.c
+index fd1d7da35..607206a9e 100644
+--- a/sound/soc/codecs/tfa989x.c
++++ b/sound/soc/codecs/tfa989x.c
+@@ -199,7 +199,7 @@ static const struct snd_soc_dapm_route tfa9872_dapm_routes[] = {
+ 
+ static int tfa989x_put_mode(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+ {
+-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
++	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+ 	struct tfa989x *tfa989x = snd_soc_component_get_drvdata(component);
+ 
+ 	gpiod_set_value_cansleep(tfa989x->rcv_gpiod, ucontrol->value.enumerated.item[0]);

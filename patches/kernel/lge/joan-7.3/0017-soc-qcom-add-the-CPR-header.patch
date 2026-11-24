@@ -1,0 +1,45 @@
+From 978e7c453de9a9849667a480857fdced297a144c Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 14:18:38 +0300
+Subject: [PATCH 17/57] soc: qcom: add the CPR header
+
+The donor CPR3/CPRh and OSM CPUfreq drivers include <soc/qcom/cpr.h>; the 7.3 tree does not carry it. Add the small header from ShapeShifter499/linux-lg-v30-joan at 0f643b34.
+---
+ include/soc/qcom/cpr.h | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+ create mode 100644 include/soc/qcom/cpr.h
+
+diff --git a/include/soc/qcom/cpr.h b/include/soc/qcom/cpr.h
+new file mode 100644
+index 000000000..4f24f8d26
+--- /dev/null
++++ b/include/soc/qcom/cpr.h
+@@ -0,0 +1,28 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
++ * Copyright (c) 2019 Linaro Limited
++ * Copyright (c) 2021, AngeloGioacchino Del Regno
++ *                     <angelogioacchino.delregno@somainline.org>
++ */
++
++#ifndef __CPR_H__
++#define __CPR_H__
++
++struct cpr_ext_data {
++	int mem_acc_threshold_uV;
++	int apm_threshold_uV;
++};
++
++struct device;
++
++#if IS_ENABLED(CONFIG_QCOM_CPR3)
++int cpr3_cprh_setup_corners(struct device *dev);
++#else
++static inline int cpr3_cprh_setup_corners(struct device *dev)
++{
++	return -ENODEV;
++}
++#endif
++
++#endif /* __CPR_H__ */

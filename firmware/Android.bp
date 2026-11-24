@@ -1,0 +1,63 @@
+// Firmware signed for the device comes from its read-only modem partition.
+install_symlink {
+    name: "joan_remoteproc_firmware",
+    vendor: true,
+    installed_location: "firmware/qcom/msm8998/joan",
+    symlink_target: "/vendor/firmware_mnt/image",
+}
+
+install_symlink {
+    name: "joan_wlan_dsp_firmware",
+    vendor: true,
+    installed_location: "firmware/wlanmdsp.mbn",
+    symlink_target: "/vendor/firmware_mnt/image/wlanmdsp.mbn",
+}
+
+install_symlink {
+    name: "joan_wlan_board_data",
+    vendor: true,
+    installed_location: "firmware/ath10k/WCN3990/hw1.0/board.bin",
+    symlink_target: "/vendor/firmware_mnt/image/bdwlan.bin",
+}
+
+install_symlink {
+    name: "joan_ipa_firmware_mdt",
+    vendor: true,
+    installed_location: "firmware/ipa_fws.mdt",
+    symlink_target: "/vendor/firmware_mnt/image/ipa_fws.mdt",
+}
+
+install_symlink {
+    name: "joan_ipa_firmware_b00",
+    vendor: true,
+    installed_location: "firmware/ipa_fws.b00",
+    symlink_target: "/vendor/firmware_mnt/image/ipa_fws.b00",
+}
+
+install_symlink {
+    name: "joan_ipa_firmware_b01",
+    vendor: true,
+    installed_location: "firmware/ipa_fws.b01",
+    symlink_target: "/vendor/firmware_mnt/image/ipa_fws.b01",
+}
+
+install_symlink {
+    name: "joan_ipa_firmware_b02",
+    vendor: true,
+    installed_location: "firmware/ipa_fws.b02",
+    symlink_target: "/vendor/firmware_mnt/image/ipa_fws.b02",
+}
+
+install_symlink {
+    name: "joan_ipa_firmware_b03",
+    vendor: true,
+    installed_location: "firmware/ipa_fws.b03",
+    symlink_target: "/vendor/firmware_mnt/image/ipa_fws.b03",
+}
+
+install_symlink {
+    name: "joan_ipa_firmware_b04",
+    vendor: true,
+    installed_location: "firmware/ipa_fws.b04",
+    symlink_target: "/vendor/firmware_mnt/image/ipa_fws.b04",
+}

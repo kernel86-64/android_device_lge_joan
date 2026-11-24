@@ -1,7 +1,6 @@
 #!/system/bin/sh
 # Start firmware users only after the filesystem services are available.
-# A late manual ADSP restart plus WLAN reprobe has produced working scans;
-# this boot sequence still needs cold-boot validation on joan.
+# Remoteproc firmware and modem_pr are served from the phone's own modem partition.
 
 # Development builds (androidboot.joan.bootlog=1) trace this script.
 if [ "$(getprop ro.boot.joan.bootlog)" = 1 ]; then
@@ -36,9 +35,8 @@ wait_running() {
 }
 wait_wlan() {
 	n=0
-	# Firmware/QMI initialization is asynchronous after modprobe returns. On
-	# this board the first netdev appeared over 60 seconds later; unbinding at
-	# 30 seconds interrupted a probe that was still making progress.
+	# Firmware/QMI initialization is asynchronous after modprobe returns.
+	# Allow the modem's WLAN domain to publish the service and netdev.
 	while [ "$n" -lt 180 ]; do
 		[ -d /sys/class/net/wlan0 ] && return 0
 		sleep 1
@@ -46,6 +44,12 @@ wait_wlan() {
 	done
 	return 1
 }
+
+# Do not fall back to firmware copied from another device variant.
+if ! grep -q ' /vendor/firmware_mnt ' /proc/mounts; then
+	echo "modem firmware partition is not mounted; leaving remote processors offline"
+	exit 1
+fi
 
 echo "=== remoteproc bring-up at $(up)"
 n=0
@@ -71,45 +75,11 @@ start_modem() {
 	wait_running "$MSS" 90
 }
 
-# WLAN recovery can fail without making the running ADSP unusable for audio.
-# Keep every WLAN failure local so it cannot skip audio or the modem wait.
-start_wlan() {
-	load ath10k_snoc || return 1
-	try=1
-	while ! wait_wlan; do
-		[ "$try" -lt 3 ] || return 1
-		try=$((try + 1))
-		echo "=== WLAN retry $try at $(up)"
-		# Quiesce the old WLAN client before restarting its remote service.
-		if [ -L /sys/bus/platform/devices/18800000.wifi/driver ]; then
-			timeout -k 2 30 /system/bin/sh -c \
-				'echo 18800000.wifi > /sys/bus/platform/drivers/ath10k_snoc/unbind' || return 1
-		fi
-		# crash is a debugfs file, not a sysfs remoteproc attribute. Resolve the
-		# number from the ADSP name because probe order changes the numbering.
-		CRASH=/sys/kernel/debug/remoteproc/${ADSP##*/}/crash
-		[ -w "$CRASH" ] || return 1
-		echo 1 > "$CRASH" || return 1
-		# The restart is asynchronous. Give it time to leave running, but a
-		# short recovery can finish between polls; netdev readiness below
-		# decides whether reprobe worked in that case.
-		n=0
-		while [ "$(cat "$ADSP/state")" = running ] && [ "$n" -lt 100 ]; do
-			sleep 0.1
-			n=$((n + 1))
-		done
-		if [ "$n" -eq 100 ]; then
-			echo "ADSP transition was not observed; checking readiness after WLAN reprobe"
-		fi
-		wait_running "$ADSP" 60 || return 1
-		timeout -k 2 30 /system/bin/sh -c \
-			'echo 18800000.wifi > /sys/bus/platform/drivers/ath10k_snoc/bind' || return 1
-	done
-	# Publish readiness once; do not repeatedly restart the HAL during recovery.
+# Modem firmware publishes WLFW asynchronously. Notify Android only after
+# the netdev exists; failures do not crash or restart a remote processor.
+publish_wlan() {
+	wait_wlan || return 1
 	setprop vendor.joan.wlan.ready 1
-	# The framework can exhaust its early HAL recovery attempts before this
-	# asynchronous netdev appears. After init refreshes the HAL, reapply only
-	# an enabled saved setting; never turn Wi-Fi on when the user left it off.
 	sleep 2
 	case "$(settings get global wifi_on)" in
 		1|2) timeout -k 2 15 cmd wifi set-wifi-enabled enabled ||
@@ -126,27 +96,39 @@ start_adsp_clients() {
 		timeout -k 2 30 /system/bin/sh -c 'echo start > "$1/state"' sh "$ADSP" || return 1
 	fi
 	wait_running "$ADSP" 30 || return 1
-	# Audio first: the SLIMbus NGD controller feeds the WCD934x codec and
-	# the sound card cannot bind without it. Do this before any WLAN
-	# recovery, which deliberately crashes and restarts the ADSP.
+	# The SLIMbus NGD controller feeds the WCD934x codec and the sound card
+	# cannot bind without it. Register audio before starting the WLAN client.
 	load slim-qcom-ngd-ctrl || echo "SLIMbus/audio did not come up; see dmesg"
 
-	# WLAN recovery is opt-in while the 24.0 Wi-Fi bring-up is broken: its
-	# ADSP crash/restart cycle takes minutes and disrupts audio and the modem.
-	if [ "$(getprop persist.vendor.joan.wlan_recovery)" = 1 ]; then
-		start_wlan || echo "WLAN initialization failed"
-		wait_running "$ADSP" 60 || return 1
-	else
-		load ath10k_snoc || echo "WLAN driver did not load"
-	fi
+	# Register the WLAN client before starting the modem's WLAN domain.
+	load ath10k_snoc || echo "WLAN driver did not load"
 }
 
+# Register both PAS instances first so pd-mapper can read every .jsn
+# (adsp*/slpi* from qcom_q6v5_pas, modem* from qcom_q6v5_mss). Both
+# processors stay offline: the ADSP has qcom,no-auto-boot and the modem is
+# only started below.
+load qcom_q6v5_pas || echo "PAS driver did not load"
+load qcom_q6v5_mss || echo "MSS driver did not load"
+
+# The userspace locator owns the SERVREG service and must be running before
+# any processor boots and registers its protection domains.
+setprop ctl.start pd-mapper
+n=0
+while [ "$(getprop init.svc.pd-mapper)" != running ] && [ "$n" -lt 20 ]; do
+	sleep 0.5
+	n=$((n + 1))
+done
+sleep 1
+
+start_adsp_clients || echo "ADSP/audio did not finish initialization; see dmesg"
+# Start the modem after ADSP/audio and the WLAN client are registered.
 start_modem &
 modem_pid=$!
-start_adsp_clients || echo "ADSP/audio did not finish initialization; see dmesg"
 # init kills the whole oneshot service cgroup when this shell exits. Reap the
 # bounded modem startup even when the independent ADSP/WLAN branch fails.
 wait "$modem_pid" || echo "modem did not reach running; see dmesg"
+publish_wlan || echo "WLAN initialization failed; see dmesg"
 
 echo "=== remoteproc bring-up complete at $(up)"
 ip -br link show wlan0

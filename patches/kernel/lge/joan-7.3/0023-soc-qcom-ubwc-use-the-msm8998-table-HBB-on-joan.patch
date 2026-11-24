@@ -1,0 +1,31 @@
+From 7672cdf40c0861199122d33ce514d103704eb640 Mon Sep 17 00:00:00 2001
+From: scada <scada@noreply.codeberg.org>
+Date: Sun, 22 Nov 2026 15:53:46 +0300
+Subject: [PATCH 23/57] soc: qcom: ubwc: use the msm8998 table HBB on joan
+
+The generic SMEM highest-bank-bit lookup does not describe joan's DRAM. Both the GPU and DPU then decode UBWC buffers with the wrong stride and the panel shows a repeating pattern. Keep the msm8998 UBWC 1.0 / HBB 15 table entry for this machine.
+---
+ drivers/soc/qcom/ubwc_config.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/soc/qcom/ubwc_config.c b/drivers/soc/qcom/ubwc_config.c
+index 23901a4c5..45e3c161f 100644
+--- a/drivers/soc/qcom/ubwc_config.c
++++ b/drivers/soc/qcom/ubwc_config.c
+@@ -195,6 +195,16 @@ const struct qcom_ubwc_cfg_data *qcom_ubwc_config_get_data(void)
+ 		return ERR_PTR(-EINVAL);
+ 	}
+ 
++	/*
++	 * joan's SMEM DRAM table does not describe the real highest bank bit
++	 * for this board.  Using it makes both the GPU and DPU decode UBWC
++	 * buffers with the wrong stride, which shows up as a repeating pattern
++	 * on the panel.  The msm8998 table entry (UBWC 1.0, HBB 15) is the
++	 * value the 6.18 tree and downstream use.
++	 */
++	if (of_machine_is_compatible("qcom,msm8998"))
++		return data;
++
+ 	hbb = qcom_smem_dram_get_hbb();
+ 	if (hbb == -ENODATA) {
+ 		/* Lack of HBB data is OK - it was only introduced later */

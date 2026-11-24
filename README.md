@@ -1,28 +1,31 @@
 # LineageOS 24.0 (Android 17) for the LG V30 (joan) on a mainline kernel
 
 An unofficial LineageOS 24.0 port for the LG V30 that runs on a mainline-based
-**Linux 6.18** kernel instead of LG's 4.4 vendor kernel. Graphics, Bluetooth
-and the rest use open drivers (Mesa freedreno, btqca, ...) rather than the old
-Qualcomm/LG HALs.
+**Linux 6.18** kernel instead of LG's 4.4 vendor kernel. Graphics, Wi-Fi,
+Bluetooth and the rest use open drivers (Mesa freedreno, ath10k, btqca, ...)
+rather than the old Qualcomm/LG HALs.
 
-> **Status: early.** This tree is the port of the LineageOS 23.2 joan device
-> tree to LineageOS 24.0 (Android 17). It boots to a usable Android 17 and
-> most hardware works, but the port is still being validated: **Wi-Fi and the
-> cellular modem/mobile network do not work on 24.0** (both worked on 23.2).
-> SELinux is still permissive and some features are missing (see below).
-> Treat it as a testing build, not a daily driver.
+> **Status: early.** The hardware support below was brought up on LineageOS
+> 23.2 (Android 16); this tree is the port of that device tree to LineageOS
+> 24.0 (Android 17) and is still being validated. On 23.2 it boots to a usable
+> Android 16 and most hardware works,
+> including mobile data, Android audio, the cameras and the sensors. SELinux
+> is still permissive and some features are missing (see below). Treat it
+> as a testing build, not a daily driver.
 
-Tested only on the **H930DS**. Other variants share the hardware, but nobody
-has tried them.
+Tested only on the **US998** (V30+, 128 GB). Other variants share the
+hardware, but nobody has tried them.
 
 ## What works
 
 | Area | State |
 |---|---|
-| Boot to Android 17 | Works |
+| Boot to Android 16 | Works |
 | Display (1440x2880, 60 Hz) | Works |
 | GPU | OpenGL ES 3.1 via Mesa freedreno (no Vulkan on A540) |
 | Touch, buttons | Works, including after screen off/on |
+| Mobile network | LTE data and registration work (tested on one carrier) |
+| Wi-Fi | Scans and connects (ath10k, no vendor HAL) |
 | Bluetooth | Works (btqca/hci_uart) |
 | Audio | Loudspeaker through Android's audio HAL |
 | Quad DAC | ES9218P with digital filter, headphone type and analog volume controls, a Quad DAC tile and a 24-bit link (headphone output not yet tested by ear) |
@@ -39,8 +42,6 @@ has tried them.
 
 | Area | State |
 |---|---|
-| Wi-Fi | Not working on 24.0 (ath10k worked on 23.2) |
-| Cellular modem / mobile network | Not working on 24.0: the modem does not come up, so no calls or data (worked on 23.2) |
 | SELinux | Permissive (policy for the new HALs is not written yet) |
 | Fingerprint | Not working (the stock HAL needs Qualcomm's secure environment) |
 | GPS | No GNSS HAL |
@@ -57,7 +58,7 @@ mkdir lineage && cd lineage
 repo init -u https://github.com/LineageOS/android.git -b lineage-24.0 --git-lfs
 mkdir -p .repo/local_manifests
 curl -o .repo/local_manifests/joan.xml \
-  https://raw.githubusercontent.com/kernel86-64/android_device_lge_joan/lineage-24.0/local_manifest.xml
+  https://codeberg.org/scada/android_local_manifest_joan/raw/branch/lineage-24.0/joan.xml
 repo sync -c -j8
 
 # The joan kernel patches on top of ACK, plus a few fixes outside the
@@ -70,14 +71,67 @@ breakfast joan
 m bacon
 ```
 
+Subsequent builds must reuse the existing `out` and ccache. Do not run
+`clean`, `clobber`, `installclean`, or remove build state unless the user
+explicitly requests it. Use the same SISO build path for builds and tests;
+do not run standalone Ninja against this `out`.
+
 The kernel is the Android Common Kernel `android17-6.18` (Linux 6.18.32),
 which the manifest checks out at commit `7626905e035e` into `kernel/lge/joan`,
-plus the 103 joan patches in `patches/kernel/lge/joan/`: ShapeShifter499's
+plus the joan patch series in `patches/kernel/lge/joan/`: ShapeShifter499's
 mainline V30 port, squashed per subsystem, and the backports and fixes this
-port needed. The last 23 patches are fixes ported from the 7.3 joan branch:
-DDR/GPU bandwidth scaling through the OPP tables, audio jack detection,
-sensor fixes, Bluetooth advertising, panel brightness and USB typec. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`,
+port needed. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`,
 together with `boot.img` and `recovery.img`.
+
+The RPM interconnect caches acknowledged average-bandwidth votes by node
+and context. This removes redundant synchronous RPM messages from CPU OPP
+changes. Initial zero votes and retries after failed writes are preserved;
+provider reprobe clears the cache validity.
+
+`power/powerhint.json` also enables standard ADPF CPU hint sessions. HWUI
+and SurfaceFlinger report their frame work durations, and the Power HAL
+adjusts per-thread uclamp requests against the target duration. Stale votes
+expire during inactivity. Both clients are enabled in `device.mk`; no
+private vendor scheduler interface is required for the CPU hint path.
+
+On the tested H930DS, `fastboot boot` omitted the usual LG boot parameters
+and reported `LG-H930` instead of `LG-H930DS`; the modem then rejected its
+model information. Normal boot restored the H930DS parameters and working
+Wi-Fi/modem. Check `ro.boot.vendor.lge.model.name` when comparing boot paths.
+
+### Brightness
+
+Android uses a positive linear minimum of `0.0002`. The upstream HWC HLG
+conversion maps it to sysfs level 6, which the panel table maps to DBV 10
+(the low level checked on H930DS). Keep that transfer function: removing it
+distorts the middle of Android's perceptual brightness slider. Maximum
+brightness remains 255 and display-off is handled separately.
+
+The stock physical-nits calibration is disabled because it describes a
+different backlight pipeline. `configs/displayconfig/display_port_0.xml`
+stores floating-point lux/linear-brightness targets, converted from the
+former backlight targets with the inverse HLG function. This avoids the
+quantization of low levels in the legacy 8-bit automatic-brightness table.
+Measuring the current panel pipeline is required before enabling physical
+nits calibration again.
+
+### Firmware selection
+
+The read-only `modem` partition is mounted at `/vendor/firmware_mnt`.
+Remoteproc firmware, `modem_pr` carrier configuration, WLAN DSP firmware,
+WLAN board data and IPA firmware are linked to its `image/` directory.
+Keep the device's matching firmware partition installed: a vendor image
+must not replace H930DS firmware with the US998 set. The vendor image
+includes the mountpoint and the AOSP supplicant configuration template.
+
+After filesystem services and Android are ready, `joan_rprocs.sh` starts
+ADSP/audio, registers ath10k, then starts the modem. It publishes WLAN
+readiness when `wlan0` appears. Startup does not bind-mount firmware,
+preassign MSA memory or force remoteproc crashes/retries.
+
+H930DS was verified with both the 80-patch and 103-patch built-in kernels
+using the original OTA modules: Wi-Fi scans and modem QMI services worked.
+SIM registration, dual-SIM operation and suspend/resume still need testing.
 
 ## Installing
 
@@ -111,9 +165,9 @@ anything. They hold your IMEI and calibration.
 
 | Path | Repository |
 |---|---|
-| `device/lge/joan` | [android_device_lge_joan](https://github.com/kernel86-64/android_device_lge_joan) |
+| `device/lge/joan` | [android_device_lge_joan](https://codeberg.org/scada/android_device_lge_joan) |
 | `kernel/lge/joan` | ACK [kernel/common](https://android.googlesource.com/kernel/common) at `7626905e035e` + `patches/kernel/lge/joan/` |
-| `vendor/lge/joan` | [proprietary_vendor_lge_joan](https://github.com/kernel86-64/proprietary_vendor_lge_joan) |
+| `vendor/lge/joan` | [proprietary_vendor_lge_joan](https://codeberg.org/scada/proprietary_vendor_lge_joan) |
 | libcamera prebuilts | built from [libcamera_joan](https://codeberg.org/scada/libcamera_joan), branch `joan-android` |
 | KGSL (experimental) | [kgsl_joan](https://codeberg.org/scada/kgsl_joan), branch `joan-6.18`: Qualcomm's open KGSL ported to the A540 on 6.18 |
 

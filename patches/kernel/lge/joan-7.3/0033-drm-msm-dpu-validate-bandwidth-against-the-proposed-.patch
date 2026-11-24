@@ -1,0 +1,407 @@
+From f123946249f846a40fe8a959fdc1c397513b6a1f Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 17:01:59 +0300
+Subject: [PATCH 33/57] drm/msm/dpu: validate bandwidth against the proposed
+ atomic state
+
+The bandwidth check reads new_perf from the currently installed CRTC state. A composition can therefore exceed the limit at commit time and leave subsequent commits, including a cheaper client-composition fallback, stuck returning -E2BIG. On joan this was observed with a 7023315 kB/s vote against a 6700000 kB/s limit.
+
+Calculate the proposed CRTC performance from visible planes and their assigned pipes during atomic check. Once all proposed CRTC costs are available, check the combined bandwidth, taking the modeset locks for unaffected CRTCs without adding them to the commit. Preserve the bandwidth limit and let userspace fall back to a composition that fits.
+
+The older joan kernel diagnosed the same stale-state check in 713905be235ea (drm/msm/dpu: check bandwidth against the proposed atomic state). Linux 7.3 finalizes split pipe geometry during CRTC resource assignment and can use more than two pipes, so account for all configured pipes after assignment.
+
+Signed-off-by: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+---
+ drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.c | 167 ++++++------------
+ drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.h |   6 +-
+ drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c      |   7 +-
+ drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c       |   1 +
+ drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c     |  28 +--
+ drivers/gpu/drm/msm/disp/dpu1/dpu_plane.h     |   8 +-
+ drivers/gpu/drm/msm/msm_atomic.c              |   9 +-
+ drivers/gpu/drm/msm/msm_kms.h                 |   6 +
+ 8 files changed, 94 insertions(+), 138 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.c
+index fea173e37..207539b6a 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.c
+@@ -51,94 +51,38 @@ u64 dpu_core_perf_adjusted_mode_clk(u64 mode_clk_rate,
+ 	return mode_clk_rate;
+ }
+ 
+-/**
+- * _dpu_core_perf_calc_bw() - to calculate BW per crtc
+- * @perf_cfg: performance configuration
+- * @crtc: pointer to a crtc
+- * Return: returns aggregated BW for all planes in crtc.
+- */
+-static u64 _dpu_core_perf_calc_bw(const struct dpu_perf_cfg *perf_cfg,
+-		struct drm_crtc *crtc)
++static struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
+ {
+-	struct drm_plane *plane;
+-	struct dpu_plane_state *pstate;
+-	u64 crtc_plane_bw = 0;
+-	u32 bw_factor;
+-
+-	drm_atomic_crtc_for_each_plane(plane, crtc) {
+-		pstate = to_dpu_plane_state(plane->state);
+-		if (!pstate)
+-			continue;
++	struct msm_drm_private *priv = crtc->dev->dev_private;
+ 
+-		crtc_plane_bw += pstate->plane_fetch_bw;
+-	}
+-
+-	bw_factor = perf_cfg->bw_inefficiency_factor;
+-	if (bw_factor) {
+-		crtc_plane_bw *= bw_factor;
+-		do_div(crtc_plane_bw, 100);
+-	}
+-
+-	return crtc_plane_bw;
++	return to_dpu_kms(priv->kms);
+ }
+ 
+-/**
+- * _dpu_core_perf_calc_clk() - to calculate clock per crtc
+- * @perf_cfg: performance configuration
+- * @crtc: pointer to a crtc
+- * @state: pointer to a crtc state
+- * Return: returns max clk for all planes in crtc.
+- */
+-static u64 _dpu_core_perf_calc_clk(const struct dpu_perf_cfg *perf_cfg,
+-		struct drm_crtc *crtc, struct drm_crtc_state *state)
++void dpu_core_perf_crtc_calc(struct drm_crtc_state *state)
+ {
++	struct dpu_kms *kms = _dpu_crtc_get_kms(state->crtc);
++	const struct dpu_perf_cfg *cfg = kms->perf.perf_cfg;
++	struct dpu_core_perf_params *perf = &to_dpu_crtc_state(state)->new_perf;
++	const struct drm_display_mode *mode = &state->adjusted_mode;
++	const struct drm_plane_state *plane_state;
+ 	struct drm_plane *plane;
+-	struct dpu_plane_state *pstate;
+-	struct drm_display_mode *mode;
+-	u64 mode_clk;
+-
+-	mode = &state->adjusted_mode;
++	u64 bw = 0;
++	u64 clk = (u64)mode->vtotal * mode->hdisplay * drm_mode_vrefresh(mode);
+ 
+-	mode_clk = (u64)mode->vtotal * mode->hdisplay * drm_mode_vrefresh(mode);
+-
+-	drm_atomic_crtc_for_each_plane(plane, crtc) {
+-		pstate = to_dpu_plane_state(plane->state);
+-		if (!pstate)
+-			continue;
+-
+-		mode_clk = max(pstate->plane_clk, mode_clk);
++	drm_atomic_crtc_state_for_each_plane_state(plane, plane_state, state) {
++		if (plane_state->visible)
++			dpu_plane_calc_perf(plane_state, mode, &bw, &clk);
+ 	}
+ 
+-	return dpu_core_perf_adjusted_mode_clk(mode_clk, perf_cfg);
+-}
++	if (cfg->bw_inefficiency_factor)
++		bw = div_u64(bw * cfg->bw_inefficiency_factor, 100);
+ 
+-static struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
+-{
+-	struct msm_drm_private *priv;
+-	priv = crtc->dev->dev_private;
+-	return to_dpu_kms(priv->kms);
+-}
+-
+-static void _dpu_core_perf_calc_crtc(const struct dpu_core_perf *core_perf,
+-				     struct drm_crtc *crtc,
+-				     struct drm_crtc_state *state,
+-				     struct dpu_core_perf_params *perf)
+-{
+-	const struct dpu_perf_cfg *perf_cfg = core_perf->perf_cfg;
+-
+-	if (!perf_cfg || !crtc || !state || !perf) {
+-		DPU_ERROR("invalid parameters\n");
+-		return;
+-	}
+-
+-	perf->bw_ctl = _dpu_core_perf_calc_bw(perf_cfg, crtc);
+-	perf->max_per_pipe_ib = perf_cfg->min_dram_ib;
+-	perf->core_clk_rate = _dpu_core_perf_calc_clk(perf_cfg, crtc, state);
+-	DRM_DEBUG_ATOMIC(
+-		"crtc=%d clk_rate=%llu core_ib=%u core_ab=%u\n",
+-			crtc->base.id, perf->core_clk_rate,
+-			perf->max_per_pipe_ib,
+-			(u32)DIV_ROUND_UP_ULL(perf->bw_ctl, 1000));
++	perf->bw_ctl = bw;
++	perf->max_per_pipe_ib = cfg->min_dram_ib;
++	perf->core_clk_rate = dpu_core_perf_adjusted_mode_clk(clk, cfg);
++	DRM_DEBUG_ATOMIC("crtc=%d clk_rate=%llu core_ib=%u core_ab=%llu\n",
++			 state->crtc->base.id, perf->core_clk_rate,
++			 perf->max_per_pipe_ib, DIV_ROUND_UP_ULL(bw, 1000));
+ }
+ 
+ static void dpu_core_perf_aggregate(struct drm_device *ddev,
+@@ -165,52 +109,49 @@ static void dpu_core_perf_aggregate(struct drm_device *ddev,
+ 	}
+ }
+ 
+-/**
+- * dpu_core_perf_crtc_check - validate performance of the given crtc state
+- * @crtc: Pointer to crtc
+- * @state: Pointer to new crtc state
+- * return: zero if success, or error code otherwise
+- */
+-int dpu_core_perf_crtc_check(struct drm_crtc *crtc,
+-		struct drm_crtc_state *state)
++int dpu_core_perf_check(struct msm_kms *msm_kms, struct drm_atomic_commit *state)
+ {
+-	u32 bw, threshold;
+-	struct dpu_crtc_state *dpu_cstate;
+-	struct dpu_kms *kms;
+-	struct dpu_core_perf_params perf = { 0 };
++	struct dpu_kms *kms = to_dpu_kms(msm_kms);
++	u32 threshold = kms->perf.perf_cfg->max_bw_high;
++	struct drm_crtc_state *crtc_state;
++	struct drm_crtc *crtc;
++	u64 bw = 0;
++	int i, ret;
+ 
+-	if (!crtc || !state) {
+-		DPU_ERROR("invalid crtc\n");
+-		return -EINVAL;
++	/* Let a disable-only transaction release bandwidth unconditionally. */
++	for_each_new_crtc_in_state(state, crtc, crtc_state, i) {
++		if (drm_atomic_crtc_effectively_active(crtc_state))
++			break;
+ 	}
+-
+-	kms = _dpu_crtc_get_kms(crtc);
+-
+-	/* we only need bandwidth check on real-time clients (interfaces) */
+-	if (dpu_crtc_get_client_type(crtc) == NRT_CLIENT)
++	if (i == state->dev->mode_config.num_crtc)
+ 		return 0;
+ 
+-	dpu_cstate = to_dpu_crtc_state(state);
+-
+-	/* obtain new values */
+-	_dpu_core_perf_calc_crtc(&kms->perf, crtc, state, &dpu_cstate->new_perf);
+-
+-	dpu_core_perf_aggregate(crtc->dev, dpu_crtc_get_client_type(crtc), &perf);
+-
+-	/* convert bandwidth to kb */
+-	bw = DIV_ROUND_UP_ULL(perf.bw_ctl, 1000);
+-	DRM_DEBUG_ATOMIC("calculated bandwidth=%uk\n", bw);
++	/*
++	 * Plane and CRTC checks have computed new_perf for the affected
++	 * CRTCs. Lock the others so concurrent commits cannot both consume
++	 * the same remaining bandwidth.
++	 */
++	drm_for_each_crtc(crtc, state->dev) {
++		ret = drm_modeset_lock(&crtc->mutex, state->acquire_ctx);
++		if (ret)
++			return ret;
+ 
+-	threshold = kms->perf.perf_cfg->max_bw_high;
++		crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
++		if (!crtc_state)
++			crtc_state = crtc->state;
+ 
+-	DRM_DEBUG_ATOMIC("final threshold bw limit = %d\n", threshold);
++		if (drm_atomic_crtc_effectively_active(crtc_state))
++			bw += to_dpu_crtc_state(crtc_state)->new_perf.bw_ctl;
++	}
+ 
++	bw = DIV_ROUND_UP_ULL(bw, 1000);
+ 	if (!threshold) {
+ 		DPU_ERROR("no bandwidth limits specified\n");
+ 		return -E2BIG;
+-	} else if (bw > threshold) {
+-		DPU_ERROR("exceeds bandwidth: %ukb > %ukb\n", bw,
+-				threshold);
++	}
++	if (bw > threshold) {
++		DRM_DEBUG_ATOMIC("exceeds bandwidth: %llu kB/s > %u kB/s\n",
++				 bw, threshold);
+ 		return -E2BIG;
+ 	}
+ 
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.h b/drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.h
+index 3740bc974..bbe1241ef 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.h
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_core_perf.h
+@@ -57,8 +57,10 @@ struct dpu_core_perf {
+ u64 dpu_core_perf_adjusted_mode_clk(u64 clk_rate,
+ 				    const struct dpu_perf_cfg *perf_cfg);
+ 
+-int dpu_core_perf_crtc_check(struct drm_crtc *crtc,
+-		struct drm_crtc_state *state);
++struct msm_kms;
++
++void dpu_core_perf_crtc_calc(struct drm_crtc_state *state);
++int dpu_core_perf_check(struct msm_kms *kms, struct drm_atomic_commit *state);
+ 
+ int dpu_core_perf_crtc_update(struct drm_crtc *crtc,
+ 			      int params_changed);
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c
+index 0401c46b8..0c7766f87 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c
+@@ -1598,12 +1598,7 @@ static int dpu_crtc_atomic_check(struct drm_crtc *crtc,
+ 
+ 	atomic_inc(&_dpu_crtc_get_kms(crtc)->bandwidth_ref);
+ 
+-	rc = dpu_core_perf_crtc_check(crtc, crtc_state);
+-	if (rc) {
+-		DPU_ERROR("crtc%d failed performance check %d\n",
+-				crtc->base.id, rc);
+-		return rc;
+-	}
++	dpu_core_perf_crtc_calc(crtc_state);
+ 
+ 	return 0;
+ }
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c
+index 0089c84c7..c7afdc150 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_kms.c
+@@ -1087,6 +1087,7 @@ static const struct msm_kms_funcs kms_funcs = {
+ 	.enable_commit   = dpu_kms_enable_commit,
+ 	.disable_commit  = dpu_kms_disable_commit,
+ 	.check_mode_changed = dpu_kms_check_mode_changed,
++	.check_perf      = dpu_core_perf_check,
+ 	.flush_commit    = dpu_kms_flush_commit,
+ 	.acquire_link    = dpu_kms_acquire_link,
+ 	.release_link    = dpu_kms_release_link,
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c
+index 7b92082d3..fb44e505b 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c
+@@ -116,7 +116,7 @@ static struct dpu_kms *_dpu_plane_get_kms(struct drm_plane *plane)
+ static u64 _dpu_plane_calc_bw(const struct dpu_mdss_cfg *catalog,
+ 	const struct msm_format *fmt,
+ 	const struct drm_display_mode *mode,
+-	struct dpu_sw_pipe_cfg *pipe_cfg)
++	const struct dpu_sw_pipe_cfg *pipe_cfg)
+ {
+ 	int src_width, src_height, dst_height, fps;
+ 	u64 plane_pixel_rate, plane_bit_rate;
+@@ -159,11 +159,11 @@ static u64 _dpu_plane_calc_bw(const struct dpu_mdss_cfg *catalog,
+  * _dpu_plane_calc_clk - calculate clock required for a plane
+  * @mode: Pointer to drm display mode
+  * @pipe_cfg: Pointer to pipe configuration
+- * Result: Updates calculated clock in the plane state.
++ * Return: required clock rate.
+  * Clock equation: dst_w * v_total * fps * (src_h / dst_h)
+  */
+ static u64 _dpu_plane_calc_clk(const struct drm_display_mode *mode,
+-		struct dpu_sw_pipe_cfg *pipe_cfg)
++		const struct dpu_sw_pipe_cfg *pipe_cfg)
+ {
+ 	int dst_width, src_height, dst_height, fps;
+ 	u64 plane_clk;
+@@ -1570,18 +1570,24 @@ static void dpu_plane_sspp_atomic_update(struct drm_plane *plane,
+ 
+ 	if (pstate->needs_qos_remap)
+ 		pstate->needs_qos_remap = false;
++}
++
++void dpu_plane_calc_perf(const struct drm_plane_state *state,
++			 const struct drm_display_mode *mode, u64 *bw, u64 *clk)
++{
++	const struct dpu_plane_state *pstate = to_dpu_plane_state(state);
++	const struct msm_format *fmt = msm_framebuffer_format(state->fb);
++	const struct dpu_plane *pdpu = to_dpu_plane(state->plane);
++	const struct dpu_sw_pipe_cfg *cfg;
++	int i;
+ 
+-	pstate->plane_fetch_bw = 0;
+-	pstate->plane_clk = 0;
+ 	for (i = 0; i < PIPES_PER_PLANE; i++) {
+-		if (!drm_rect_width(&pstate->pipe_cfg[i].src_rect))
++		cfg = &pstate->pipe_cfg[i];
++		if (!drm_rect_width(&cfg->src_rect))
+ 			continue;
+-		pstate->plane_fetch_bw += _dpu_plane_calc_bw(pdpu->catalog, fmt,
+-							     &crtc->mode, &pstate->pipe_cfg[i]);
+ 
+-		pstate->plane_clk = max(pstate->plane_clk,
+-					_dpu_plane_calc_clk(&crtc->mode,
+-							    &pstate->pipe_cfg[i]));
++		*bw += _dpu_plane_calc_bw(pdpu->catalog, fmt, mode, cfg);
++		*clk = max(*clk, _dpu_plane_calc_clk(mode, cfg));
+ 	}
+ }
+ 
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.h b/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.h
+index d2e7c8c25..f7e58aab5 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.h
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.h
+@@ -24,8 +24,6 @@
+  * @multirect_index: index of the rectangle of SSPP
+  * @multirect_mode: parallel or time multiplex multirect mode
+  * @pending:	whether the current update is still pending
+- * @plane_fetch_bw: calculated BW per plane
+- * @plane_clk: calculated clk per plane
+  * @needs_dirtyfb: whether attached CRTC needs pixel data explicitly flushed
+  * @layout:     framebuffer memory layout
+  */
+@@ -37,9 +35,6 @@ struct dpu_plane_state {
+ 	bool needs_qos_remap;
+ 	bool pending;
+ 
+-	u64 plane_fetch_bw;
+-	u64 plane_clk;
+-
+ 	bool needs_dirtyfb;
+ 
+ 	struct dpu_hw_fmt_layout layout;
+@@ -48,6 +43,9 @@ struct dpu_plane_state {
+ #define to_dpu_plane_state(x) \
+ 	container_of(x, struct dpu_plane_state, base)
+ 
++void dpu_plane_calc_perf(const struct drm_plane_state *state,
++			 const struct drm_display_mode *mode, u64 *bw, u64 *clk);
++
+ void dpu_plane_flush(struct drm_plane *plane);
+ 
+ void dpu_plane_set_error(struct drm_plane *plane, bool error);
+diff --git a/drivers/gpu/drm/msm/msm_atomic.c b/drivers/gpu/drm/msm/msm_atomic.c
+index a8babf1db..8afe5eb3a 100644
+--- a/drivers/gpu/drm/msm/msm_atomic.c
++++ b/drivers/gpu/drm/msm/msm_atomic.c
+@@ -207,7 +207,14 @@ int msm_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
+ 	if (ret)
+ 		return ret;
+ 
+-	return drm_atomic_helper_check(dev, state);
++	ret = drm_atomic_helper_check(dev, state);
++	if (ret)
++		return ret;
++
++	if (kms && kms->funcs && kms->funcs->check_perf)
++		return kms->funcs->check_perf(kms, state);
++
++	return 0;
+ }
+ 
+ void msm_atomic_commit_tail(struct drm_atomic_commit *state)
+diff --git a/drivers/gpu/drm/msm/msm_kms.h b/drivers/gpu/drm/msm/msm_kms.h
+index f0f2c853a..25e49a15e 100644
+--- a/drivers/gpu/drm/msm/msm_kms.h
++++ b/drivers/gpu/drm/msm/msm_kms.h
+@@ -68,6 +68,12 @@ struct msm_kms_funcs {
+ 	 */
+ 	int (*check_mode_changed)(struct msm_kms *kms, struct drm_atomic_commit *state);
+ 
++	/**
++	 * @check_perf: Validate performance requirements after the atomic
++	 * helpers have checked the proposed plane and CRTC states.
++	 */
++	int (*check_perf)(struct msm_kms *kms, struct drm_atomic_commit *state);
++
+ 	/**
+ 	 * Prepare for atomic commit.  This is called after any previous
+ 	 * (async or otherwise) commit has completed.

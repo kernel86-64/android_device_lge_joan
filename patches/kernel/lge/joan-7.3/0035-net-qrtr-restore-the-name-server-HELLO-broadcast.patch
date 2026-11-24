@@ -1,0 +1,90 @@
+From 09a39fbfe0295f0e38ff34ca2306ccf8cb78f958 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 19:00:12 +0300
+Subject: [PATCH 35/57] net: qrtr: restore the name-server HELLO broadcast
+
+The 6.18 tree sends a broadcast HELLO from qrtr_ns_init() and does not
+gate outgoing traffic on hello_sent. Without the initial HELLO the remote
+processors never learn the local node and QMI clients stay silent, which
+leaves qrtr-lookup empty and the modem without its data/QMI services.
+
+Reinstate the HELLO on init and in ctrl_cmd_hello(), and drop the
+hello_sent gate from qrtr_node_enqueue().
+---
+ net/qrtr/af_qrtr.c |  8 --------
+ net/qrtr/ns.c      | 34 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 34 insertions(+), 8 deletions(-)
+
+diff --git a/net/qrtr/af_qrtr.c b/net/qrtr/af_qrtr.c
+index e7b364742..70a194909 100644
+--- a/net/qrtr/af_qrtr.c
++++ b/net/qrtr/af_qrtr.c
+@@ -349,14 +349,6 @@ static int qrtr_node_enqueue(struct qrtr_node *node, struct sk_buff *skb,
+ 	size_t len = skb->len;
+ 	int rc, confirm_rx;
+ 
+-	mutex_lock(&node->ep_lock);
+-	if (!node->hello_sent && type != QRTR_TYPE_HELLO) {
+-		mutex_unlock(&node->ep_lock);
+-		kfree_skb(skb);
+-		return -EAGAIN;
+-	}
+-	mutex_unlock(&node->ep_lock);
+-
+ 	confirm_rx = qrtr_tx_wait(node, to->sq_node, to->sq_port, type);
+ 	if (confirm_rx < 0) {
+ 		kfree_skb(skb);
+diff --git a/net/qrtr/ns.c b/net/qrtr/ns.c
+index bcb090ee7..4ea4a75b8 100644
+--- a/net/qrtr/ns.c
++++ b/net/qrtr/ns.c
+@@ -327,8 +327,38 @@ static int server_del(struct qrtr_node *node, unsigned int port, bool bcast)
+ 	return 0;
+ }
+ 
++static int say_hello(struct sockaddr_qrtr *dest)
++{
++	struct qrtr_ctrl_pkt pkt;
++	struct msghdr msg = { };
++	struct kvec iv;
++	int ret;
++
++	iv.iov_base = &pkt;
++	iv.iov_len = sizeof(pkt);
++
++	memset(&pkt, 0, sizeof(pkt));
++	pkt.cmd = cpu_to_le32(QRTR_TYPE_HELLO);
++
++	msg.msg_name = (struct sockaddr *)dest;
++	msg.msg_namelen = sizeof(*dest);
++
++	ret = kernel_sendmsg(qrtr_ns.sock, &msg, &iv, 1, sizeof(pkt));
++	if (ret < 0)
++		pr_err("failed to send hello msg\n");
++
++	return ret;
++}
++
++/* Announce the list of servers registered on the local node */
+ static int ctrl_cmd_hello(struct sockaddr_qrtr *sq)
+ {
++	int ret;
++
++	ret = say_hello(sq);
++	if (ret < 0)
++		return ret;
++
+ 	return announce_servers(sq);
+ }
+ 
+@@ -745,6 +775,10 @@ int qrtr_ns_init(void)
+ 	qrtr_ns.bcast_sq.sq_node = QRTR_NODE_BCAST;
+ 	qrtr_ns.bcast_sq.sq_port = QRTR_PORT_CTRL;
+ 
++	ret = say_hello(&qrtr_ns.bcast_sq);
++	if (ret < 0)
++		goto err_wq;
++
+ 	/* As the qrtr ns socket owner and creator is the same module, we have
+ 	 * to decrease the qrtr module reference count to guarantee that it
+ 	 * remains zero after the ns socket is created, otherwise, executing

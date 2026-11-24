@@ -1,0 +1,39 @@
+From 3587fcd99e67e784a7f5c92affeb1ea5d5cf04ff Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 00:25:30 +0300
+Subject: [PATCH 50/57] soc: qcom: spm: skip sequence write when L2 SAW has no
+ sequence offset
+
+L2 SAW2 v2.3/v4.1 controllers on MSM8998 have no SPM_REG_SEQ_ENTRY
+offset; writing 64 zero bytes to offset 0 overwrites the bootloader's
+SPM control registers. Guard the sequence write with a non-zero offset
+check, matching donor and 6.18.
+---
+ drivers/soc/qcom/spm.c | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/soc/qcom/spm.c b/drivers/soc/qcom/spm.c
+index f75659fff..78168df49 100644
+--- a/drivers/soc/qcom/spm.c
++++ b/drivers/soc/qcom/spm.c
+@@ -527,10 +527,16 @@ static int spm_dev_probe(struct platform_device *pdev)
+ 	drv->dev = &pdev->dev;
+ 	platform_set_drvdata(pdev, drv);
+ 
+-	/* Write the SPM sequences first.. */
+-	addr = drv->reg_base + drv->reg_data->reg_offset[SPM_REG_SEQ_ENTRY];
+-	__iowrite32_copy(addr, drv->reg_data->seq,
+-			ARRAY_SIZE(drv->reg_data->seq) / 4);
++	/*
++	 * Write the SPM sequences first.. The L2 SAWs (v2.3, v4.1) have no
++	 * sequence entry offset; offset 0 there is the SPM control register
++	 * block the bootloader set up, so leave it alone.
++	 */
++	if (drv->reg_data->reg_offset[SPM_REG_SEQ_ENTRY]) {
++		addr = drv->reg_base + drv->reg_data->reg_offset[SPM_REG_SEQ_ENTRY];
++		__iowrite32_copy(addr, drv->reg_data->seq,
++				 ARRAY_SIZE(drv->reg_data->seq) / 4);
++	}
+ 
+ 	/*
+ 	 * ..and then the control registers.

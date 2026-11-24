@@ -100,6 +100,12 @@ EOF
 	echo
 	echo 'PRODUCT_COPY_FILES += \'
 	(cd "$OUT/proprietary" && find vendor -type f | sort) | while read -r f; do
+		# These names are installed as links to the device's modem partition.
+		case "$f" in
+			vendor/firmware/qcom/msm8998/joan/*|vendor/firmware/ipa_fws.*|\
+			vendor/firmware/wlanmdsp.mbn|vendor/firmware/ath10k/WCN3990/hw1.0/board.bin)
+				continue ;;
+		esac
 		echo "    vendor/lge/joan/proprietary/$f:\$(TARGET_COPY_OUT_VENDOR)/${f#vendor/} \\"
 	done
 	echo
