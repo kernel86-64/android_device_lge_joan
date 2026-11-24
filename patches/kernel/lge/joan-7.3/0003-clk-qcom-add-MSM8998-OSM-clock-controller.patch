@@ -1,7 +1,7 @@
 From 0e6a5d5ae173d67c26747deaa0772809275f4f0d Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 13:09:41 +0300
-Subject: [PATCH 03/57] clk: qcom: add MSM8998 OSM clock controller
+Subject: [PATCH 03/59] clk: qcom: add MSM8998 OSM clock controller
 
 Import the MSM8998 OSM clock driver from ShapeShifter499/linux-lg-v30-joan at 0f643b34. It programs the CPU LUT and exposes the per-cluster clocks used by the joan CPU OPP tables.
 ---

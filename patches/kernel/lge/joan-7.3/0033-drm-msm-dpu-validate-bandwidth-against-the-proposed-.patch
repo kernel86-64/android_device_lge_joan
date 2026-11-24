@@ -1,7 +1,7 @@
 From f123946249f846a40fe8a959fdc1c397513b6a1f Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 17:01:59 +0300
-Subject: [PATCH 33/57] drm/msm/dpu: validate bandwidth against the proposed
+Subject: [PATCH 33/59] drm/msm/dpu: validate bandwidth against the proposed
  atomic state
 
 The bandwidth check reads new_perf from the currently installed CRTC state. A composition can therefore exceed the limit at commit time and leave subsequent commits, including a cheaper client-composition fallback, stuck returning -E2BIG. On joan this was observed with a 7023315 kB/s vote against a 6700000 kB/s limit.

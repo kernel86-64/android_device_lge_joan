@@ -1,7 +1,7 @@
 From aaa6750adc2359514e44008a50c36ca603751801 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 16:42:35 +0300
-Subject: [PATCH 32/57] slimbus: qcom-ngd: import the working 6.18 driver
+Subject: [PATCH 32/59] slimbus: qcom-ngd: import the working 6.18 driver
 
 The 7.3 SLIMbus NGD driver times out selecting the ADSP hardware instance and never creates the WCD934x SLIMbus device, leaving the sound card deferred. Import the 6.18 driver with its 3 s QMI handshake, correct NGD register-base split, late-service retry and transmit-abandon fixes.
 ---

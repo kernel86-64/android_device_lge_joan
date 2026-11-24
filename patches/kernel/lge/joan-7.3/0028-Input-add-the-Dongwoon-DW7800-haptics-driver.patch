@@ -1,7 +1,7 @@
 From b774792920673379f03f4b075c530c013c67a3df Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 16:09:59 +0300
-Subject: [PATCH 28/57] Input: add the Dongwoon DW7800 haptics driver
+Subject: [PATCH 28/59] Input: add the Dongwoon DW7800 haptics driver
 
 Restore the LG V30's 8 kHz waveform-driven vibration motor. The 7.3 port dropped both the driver and its FF_MEMLESS support, leaving the vibrator HAL with no force-feedback device. Import the working 6.18 driver and enable it in joan_defconfig.
 ---

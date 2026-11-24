@@ -1,7 +1,7 @@
 From c2a18ba8fee52c78d2ec6f7caf5e9d64e13e7301 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 14:23:56 +0300
-Subject: [PATCH 18/57] interconnect: qcom: import the donor RPM bus cap and
+Subject: [PATCH 18/59] interconnect: qcom: import the donor RPM bus cap and
  64-bit bandwidth
 
 Port the donor changes from 0086 (345e4ae6) and 0094 (c87d401f): send RPM bandwidth as a 64-bit value and add the per-provider bus_clk_max_rate cap used by MSM8998. The cap also limits the INT_MAX initial vote held until sync_state().

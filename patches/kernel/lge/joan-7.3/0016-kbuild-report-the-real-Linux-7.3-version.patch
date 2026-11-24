@@ -1,7 +1,7 @@
 From 1f351b25780249432090a1295cc9a040470c2a5d Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 14:17:39 +0300
-Subject: [PATCH 16/57] kbuild: report the real Linux 7.3 version
+Subject: [PATCH 16/59] kbuild: report the real Linux 7.3 version
 
 The Google android-mainline-7.3 tag carries the ACK TODO b/575473148 that overrides the real 7.3 version with a fake v7.2-rc9. The source is final 7.3 and this is not a GKI build; remove the override so the kernel and modules report 7.3.0 (plus the normal SCM suffix from the port branch).
 ---

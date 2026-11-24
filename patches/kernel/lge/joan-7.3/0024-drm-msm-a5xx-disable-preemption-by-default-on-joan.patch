@@ -1,7 +1,7 @@
 From d2a9830cff8ea7b45032e99dd67262d05e180f19 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 15:57:02 +0300
-Subject: [PATCH 24/57] drm/msm/a5xx: disable preemption by default on joan
+Subject: [PATCH 24/59] drm/msm/a5xx: disable preemption by default on joan
 
 A5xx preemption records do not carry SMMU state, while msm8998's per-process pagetables require a TTBR0 update per submit. A preempted ring can resume against another process's TTBR0, producing translation faults and corrupted composition. Use one ring unless a5xx_enable_preemption is explicitly set.
 ---

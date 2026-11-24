@@ -1,7 +1,7 @@
 From c78bf88a3f461fef2ae72657af06c8e1c825837a Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 00:25:30 +0300
-Subject: [PATCH 47/57] clk: qcom: gcc-msm8998: keep MMSS QM clocks critical
+Subject: [PATCH 47/59] clk: qcom: gcc-msm8998: keep MMSS QM clocks critical
  for MPSS/RPM
 
 On Linux 6.18, gcc-msm8998 set .sync_state = clk_sync_state so

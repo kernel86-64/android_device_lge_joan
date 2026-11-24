@@ -1,20 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- LG V30 (joan) on LineageOS 24.0 with a mainline-based 7.3 kernel.
+<!-- LG V30 (joan) on LineageOS 24.0 with a mainline-based Linux 7.3 kernel.
      Copy into .repo/local_manifests/ of a lineage-24.0 tree, repo sync, then
      run device/lge/joan/apply-patches.sh (it also applies the kernel series).
-     This is a convenience copy; the canonical file lives in
-     android_local_manifest_joan on branch lineage-24.0. -->
+     Everything joan-specific is hosted on github.com/kernel86-64. -->
 <manifest>
-  <remote name="codeberg-scada" fetch="https://codeberg.org/scada" />
   <remote name="ack" fetch="https://android.googlesource.com" />
 
-  <project path="device/lge/joan" name="android_device_lge_joan"
-           remote="codeberg-scada" revision="lineage-24.0" />
-  <project path="vendor/lge/joan" name="proprietary_vendor_lge_joan"
-           remote="codeberg-scada" revision="lineage-24.0" />
+  <project path="device/lge/joan" name="kernel86-64/android_device_lge_joan"
+           remote="github" revision="lineage-24.0" />
+  <project path="vendor/lge/joan" name="kernel86-64/proprietary_vendor_lge_joan"
+           remote="github" revision="lineage-24.0" />
 
-  <!-- ACK android-mainline-7.3 (official tag commit); the joan 7.3
-       patches live in device/lge/joan/patches/kernel/lge/joan. -->
+  <!-- ACK android-mainline-7.3 (the v7.3 merge); the joan 7.3 patches live
+       in device/lge/joan/patches/kernel/lge/joan-7.3. -->
   <project path="kernel/lge/joan-7.3" name="kernel/common" remote="ack"
            revision="d9ee36f9bbc0b49f04f192bd19e10a0651503732"
            upstream="android-mainline-7.3" clone-depth="1" />
@@ -23,4 +21,54 @@
   <project path="kernel/lge/joan" name="kernel/common" remote="ack"
            revision="7626905e035eee666b10cf7d6fde35688af35ee4"
            upstream="android17-6.18" clone-depth="1" />
+
+  <!-- apply-patches.sh applies plain diffs to these projects, so pin them to
+       the revisions the diffs were generated against. Keep the build/make
+       linkfiles: they create build/envsetup.sh, build/core and friends. -->
+  <remove-project name="LineageOS/android_build" />
+  <project path="build/make" name="LineageOS/android_build" remote="github"
+           revision="90d006387398ae6899145e6531a304500cfa0f70" >
+    <linkfile src="CleanSpec.mk" dest="build/CleanSpec.mk" />
+    <linkfile src="buildspec.mk.default" dest="build/buildspec.mk.default" />
+    <linkfile src="core" dest="build/core" />
+    <linkfile src="envsetup.sh" dest="build/envsetup.sh" />
+    <linkfile src="target" dest="build/target" />
+    <linkfile src="tools" dest="build/tools" />
+  </project>
+
+  <remove-project name="LineageOS/android_build_soong" />
+  <project path="build/soong" name="LineageOS/android_build_soong"
+           remote="github" revision="a528a88bd553d2a449ad9338a3e944b89a164971" />
+
+  <remove-project name="LineageOS/android_bootable_recovery" />
+  <project path="bootable/recovery" name="LineageOS/android_bootable_recovery"
+           remote="github" revision="08054cf66bb0c33fdc639a7a688f860c7c7a5fdf" />
+
+  <remove-project name="platform/external/drm_hwcomposer" />
+  <project path="external/drm_hwcomposer" name="platform/external/drm_hwcomposer"
+           remote="aosp" revision="87daba89b05fabc7f1e9316e3f283f19fd0c45cd" />
+
+  <remove-project name="LineageOS/android_frameworks_base" />
+  <project path="frameworks/base" name="LineageOS/android_frameworks_base"
+           remote="github" revision="afcd876af2157908814f87383678b2bd4fb6b9b6" />
+
+  <remove-project name="platform/frameworks/opt/net/wifi" />
+  <project path="frameworks/opt/net/wifi" name="platform/frameworks/opt/net/wifi"
+           remote="aosp" revision="12e5aa5f7224b05b6046613967c6d1de75aeaf26" />
+
+  <remove-project name="LineageOS/android_hardware_interfaces" />
+  <project path="hardware/interfaces" name="LineageOS/android_hardware_interfaces"
+           remote="github" revision="a0221f11248a924532444fc7de85d41998b9fe1e" />
+
+  <remove-project name="LineageOS/android_device_lineage_sepolicy" />
+  <project path="device/lineage/sepolicy" name="LineageOS/android_device_lineage_sepolicy"
+           remote="github" revision="67b03ec96c7d1cc2f311f4f3b43adf5e55839709" />
+
+  <remove-project name="LineageOS/android_hardware_lineage_interfaces" />
+  <project path="hardware/lineage/interfaces" name="LineageOS/android_hardware_lineage_interfaces"
+           remote="github" revision="4f6225db0d3c8cda1f59641fe0d7e53bd5e6449a" />
+
+  <remove-project name="LineageOS/android_packages_apps_Aperture" />
+  <project path="packages/apps/Aperture" name="LineageOS/android_packages_apps_Aperture"
+           remote="github" revision="479b2f3edff71b4a279fcfd9d5319b772276ce87" />
 </manifest>

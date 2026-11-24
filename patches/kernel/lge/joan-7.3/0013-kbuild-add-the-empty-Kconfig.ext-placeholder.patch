@@ -1,7 +1,7 @@
 From 276a194b47fe9d9e7dfe314b869792ab56b1002c Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 14:08:02 +0300
-Subject: [PATCH 13/57] kbuild: add the empty Kconfig.ext placeholder
+Subject: [PATCH 13/59] kbuild: add the empty Kconfig.ext placeholder
 
 The ACK Kconfig sources Kconfig.ext at the top level. The standalone joan build does not define KCONFIG_EXT_PREFIX, so provide the same empty placeholder the 6.18 tree carries.
 ---

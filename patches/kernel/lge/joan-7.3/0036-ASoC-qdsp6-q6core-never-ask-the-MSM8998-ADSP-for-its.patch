@@ -1,7 +1,7 @@
 From 525e1dfc57193ad3edcc493123ed26b3ed598b0d Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 19:42:59 +0300
-Subject: [PATCH 36/57] ASoC: qdsp6: q6core: never ask the MSM8998 ADSP for its
+Subject: [PATCH 36/59] ASoC: qdsp6: q6core: never ask the MSM8998 ADSP for its
  versions
 
 The MSM8998 ADSP firmware stops reading its glink FIFO for good when it

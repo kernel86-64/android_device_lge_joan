@@ -1,7 +1,7 @@
 From 353e5c1b759ada46f0f09b79d04b4b0dcfe5d497 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 13:09:51 +0300
-Subject: [PATCH 05/57] cpufreq: qcom: add MSM8998 OSM driver
+Subject: [PATCH 05/59] cpufreq: qcom: add MSM8998 OSM driver
 
 Import the MSM8998 OSM CPUfreq driver from ShapeShifter499/linux-lg-v30-joan at 0f643b34. It builds the OSM LUT from the CPU OPPs and the CPRh voltages and hands the two clusters to cpufreq.
 ---

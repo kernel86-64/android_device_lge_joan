@@ -1,7 +1,7 @@
 From 1a7dac60e42979db9d83fc651143440e11c039c6 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 00:25:30 +0300
-Subject: [PATCH 52/57] thermal: qcom: lmh: enable MSM8998 limits algorithms
+Subject: [PATCH 52/59] thermal: qcom: lmh: enable MSM8998 limits algorithms
  from donor
 
 Port the donor qcom,msm8998-lmh match entry and per-SoC algorithm mask

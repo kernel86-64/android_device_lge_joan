@@ -1,0 +1,25 @@
+From 97c82a45e769f69ed129ee1237cf2931ba234dd3 Mon Sep 17 00:00:00 2001
+From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 17:20:31 +0300
+Subject: [PATCH 58/59] arm64: configs: joan: enable CONFIG_ASHMEM and memfd
+ ashmem shim
+
+Enable CONFIG_ASHMEM=y (which selects CONFIG_ASHMEM_C=y and defaults CONFIG_MEMFD_ASHMEM_SHIM=y) in joan_defconfig.
+
+Inside isolated WebView renderer sandboxes (e.g. LineageOS Jelly), libcutils cannot readlink(/proc/self/fd/...) due to EPERM and falls back to issuing ASHMEM_* ioctls (such as ASHMEM_SET_PROT_MASK / 0x7705) directly on memfd file descriptors. Without CONFIG_ASHMEM and CONFIG_MEMFD_ASHMEM_SHIM, shmem_ashmem_ioctl is compiled out, causing ENOTTY and stalling CrRendererMain at 100% CPU with a grey screen.
+---
+ arch/arm64/configs/joan_defconfig | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/configs/joan_defconfig b/arch/arm64/configs/joan_defconfig
+index d33b8fdbc..35771bb8f 100644
+--- a/arch/arm64/configs/joan_defconfig
++++ b/arch/arm64/configs/joan_defconfig
+@@ -1113,6 +1113,7 @@ CONFIG_XEN_GRANT_DEV_ALLOC=y
+ CONFIG_GREYBUS=m
+ CONFIG_GREYBUS_BEAGLEPLAY=m
+ CONFIG_STAGING=y
++CONFIG_ASHMEM=y
+ CONFIG_STAGING_MEDIA=y
+ CONFIG_VIDEO_MAX96712=m
+ CONFIG_CHROME_PLATFORMS=y

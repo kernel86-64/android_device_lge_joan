@@ -1,7 +1,7 @@
 From bf0b88c53f991fbd4b41b68fee8d69e949e4ae36 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 20:11:46 +0300
-Subject: [PATCH 38/57] Revert "net: qrtr: restore the name-server HELLO
+Subject: [PATCH 38/59] Revert "net: qrtr: restore the name-server HELLO
  broadcast"
 
 This reverts commit a63d23fc0b4cf3d74deaea1a8ebed54e67faad97.

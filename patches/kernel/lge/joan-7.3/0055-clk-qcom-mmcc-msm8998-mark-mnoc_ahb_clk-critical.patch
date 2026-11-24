@@ -1,7 +1,7 @@
 From 8da65f3b9c5f713724afa772c5792c9c168b1b11 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 00:39:22 +0300
-Subject: [PATCH 55/57] clk: qcom: mmcc-msm8998: mark mnoc_ahb_clk critical
+Subject: [PATCH 55/59] clk: qcom: mmcc-msm8998: mark mnoc_ahb_clk critical
 
 i2c-qcom-cci probes before mmssnoc/display enables mnoc_ahb_clk, causing
 camss_ahb_clk to time out (-EBUSY, status stuck at 'off') and abort CCI

@@ -1,7 +1,7 @@
 From 1a521d181fdaaf7e58edd09c0b3e67159529efbe Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 16:09:53 +0300
-Subject: [PATCH 27/57] ASoC: add the ES9218P DAC and joan's 24-bit quaternary
+Subject: [PATCH 27/59] ASoC: add the ES9218P DAC and joan's 24-bit quaternary
  MI2S
 
 The 7.3 port kept WCD934x and TFA989x but dropped the ES9218P Quad DAC, so the sound card could not bind its headphone DAI link. Import the 6.18 ES9218P driver, restore the 24-bit quaternary MI2S rate/format handling from the joan machine driver, and mark the sound node qcom,quat-mi2s-s24.

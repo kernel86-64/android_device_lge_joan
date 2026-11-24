@@ -1,7 +1,7 @@
 From 558dd87dd68a2ffeef42ac69b1bb21a757f43164 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 22:16:29 +0300
-Subject: [PATCH 40/57] ASoC: codecs: restore TFA9872 support for joan
+Subject: [PATCH 40/59] ASoC: codecs: restore TFA9872 support for joan
 
 Port the TFA9872 amplifier support from the working 6.18 tree (6d1f97b9e and 54091cb9a). The joan card links to nxp,tfa9872 and defers indefinitely when the codec driver only matches older TFA989x parts.
 ---

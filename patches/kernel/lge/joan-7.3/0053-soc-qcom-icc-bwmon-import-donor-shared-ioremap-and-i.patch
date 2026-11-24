@@ -1,7 +1,7 @@
 From 081f6a7b02d932d372d8ab29d4bf47547ced0cdd Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 00:25:30 +0300
-Subject: [PATCH 53/57] soc: qcom: icc-bwmon: import donor shared ioremap and
+Subject: [PATCH 53/59] soc: qcom: icc-bwmon: import donor shared ioremap and
  io-percent scaling
 
 Port the donor icc-bwmon fixes so 1008000.pmu shares its MMIO window

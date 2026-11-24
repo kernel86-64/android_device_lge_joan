@@ -1,7 +1,7 @@
 From ca95baae7d929ebc63987bc34faeceb061e75cce Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 16:10:26 +0300
-Subject: [PATCH 29/57] drm/msm/a5xx: reset the GPU before programming it
+Subject: [PATCH 29/59] drm/msm/a5xx: reset the GPU before programming it
 
 A short runtime suspend/resume pair may not discharge the GX rail, leaving the old CP ring and ME state alive. Reset the block at the start of a5xx_hw_init() and use downstream's four-million-cycle hang threshold instead of the 1.5 ms value that trips on healthy draws.
 ---

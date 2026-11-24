@@ -1,7 +1,7 @@
 From e2914792598761dfd90d11b4ff4cd7f5e1dc3ce2 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 22:19:39 +0300
-Subject: [PATCH 42/57] ASoC: dt-bindings: document the TFA9872 amplifier
+Subject: [PATCH 42/59] ASoC: dt-bindings: document the TFA9872 amplifier
 
 ---
  Documentation/devicetree/bindings/sound/nxp,tfa989x.yaml | 1 +

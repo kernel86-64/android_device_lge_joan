@@ -1,7 +1,7 @@
 From ea8245f45fe5426a8e6483d0e47c4b00d914f3b5 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 13:11:02 +0300
-Subject: [PATCH 09/57] clk: qcom: import joan MSM8998 clock changes
+Subject: [PATCH 09/59] clk: qcom: import joan MSM8998 clock changes
 
 Import the MSM8998 GCC/GPUCC/MMCC changes from ShapeShifter499/linux-lg-v30-joan at 0f643b34: the GPLL0 divider feeds, the USB branch halt behaviour and the DP/DSI clock ops used by the joan display path.
 ---

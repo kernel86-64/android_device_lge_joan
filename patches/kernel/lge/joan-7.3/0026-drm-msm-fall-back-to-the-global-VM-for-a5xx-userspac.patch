@@ -1,7 +1,7 @@
 From cb83c7486a01ce709fcf35e2f3b663d43370a292 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 16:05:24 +0300
-Subject: [PATCH 26/57] drm/msm: fall back to the global VM for a5xx userspace
+Subject: [PATCH 26/59] drm/msm: fall back to the global VM for a5xx userspace
  submits
 
 A5XX has no create_private_vm callback. The 7.3 path returned NULL for non-kernel-managed submissions, while 6.18 always falls back to gpu->vm. The GPU then read buffers through an address space that had no mapping and raised translation faults.

@@ -1,7 +1,7 @@
 From 227dc03b71adc8c59632f5468eb2e58d9b9337e9 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 14:51:08 +0300
-Subject: [PATCH 19/57] arm64: dts: qcom: msm8998-lg-joan: enable the Android
+Subject: [PATCH 19/59] arm64: dts: qcom: msm8998-lg-joan: enable the Android
  peripherals
 
 Recovery used a minimal USB3-only, fixed-peripheral setup. For Android, restore the PMI8998 VBUS regulator and Type-C port, let DWC3 switch roles through the port, add the QMP orientation switch, enable the Adreno 540 GPU, and keep the ADSP on the joan_rprocs late-boot contract.

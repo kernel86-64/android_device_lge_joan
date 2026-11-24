@@ -1,7 +1,7 @@
 From 8ed3d500ae6f7a15953733ab23ee9ac1660c3d94 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 23:06:26 +0300
-Subject: [PATCH 45/57] net: ipa: initialize the system header table on IPA
+Subject: [PATCH 45/59] net: ipa: initialize the system header table on IPA
  v3.1
 
 The default route on MSM8998 selects the system header table. Port the HDR_INIT_SYSTEM command from the joan 7.3 donor and point it at the existing zeroed coherent buffer before enabling traffic. This avoids leaving the table base at its reset value.

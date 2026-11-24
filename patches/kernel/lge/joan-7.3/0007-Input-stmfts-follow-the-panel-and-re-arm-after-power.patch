@@ -1,7 +1,7 @@
 From d200d21bba4961e260c298eb55746a0f6ac8cddc Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 13:10:19 +0300
-Subject: [PATCH 07/57] Input: stmfts: follow the panel and re-arm after
+Subject: [PATCH 07/59] Input: stmfts: follow the panel and re-arm after
  power-on
 
 Import the donor stmfts changes from ShapeShifter499/linux-lg-v30-joan at 0f643b34. The driver now follows the DRM panel's prepare/enable state and re-arms sensing after every power-on, which the joan panel/touch pair needs.

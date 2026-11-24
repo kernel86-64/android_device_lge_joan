@@ -1,7 +1,7 @@
 From ff16c35e90ecb3465e8cb679b73e3e03a56dec6f Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 13:08:18 +0300
-Subject: [PATCH 02/57] interconnect: qcom: add the MSM8998 RPM provider
+Subject: [PATCH 02/59] interconnect: qcom: add the MSM8998 RPM provider
 
 Import the MSM8998 NoC topology and RPM clock voting from ShapeShifter499/linux-lg-v30-joan at 0f643b34. The provider is needed by the joan UFS, USB3 and display nodes in the imported DT.
 ---

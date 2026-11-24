@@ -1,7 +1,7 @@
 From 8968a0f10090ca8d92e9428c08212e056c68c267 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 13:09:47 +0300
-Subject: [PATCH 04/57] pmdomain: qcom: add CPR3/CPRh support for MSM8998
+Subject: [PATCH 04/59] pmdomain: qcom: add CPR3/CPRh support for MSM8998
 
 Import the CPR3/CPRh driver and its shared helpers from ShapeShifter499/linux-lg-v30-joan at 0f643b34. The joan DT uses the MSM8998 CPRh power domains to drive the CPU OPPs; the CPUfreq/OSM driver in the next commit consumes these OPPs.
 ---

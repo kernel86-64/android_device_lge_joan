@@ -1,7 +1,7 @@
 From 451bf03f24971e7b654d6a06cb8ae284569a78f4 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 00:39:22 +0300
-Subject: [PATCH 56/57] media: qcom: camss: import donor MSM8998 CAMSS support
+Subject: [PATCH 56/59] media: qcom: camss: import donor MSM8998 CAMSS support
 
 Port the donor MSM8998 CAMSS platform support (CSIPHY v5.0 2-phase PHY,
 CSID, ISPIF, VFE 4.8) so the V4L2 media graph registers for libcamera

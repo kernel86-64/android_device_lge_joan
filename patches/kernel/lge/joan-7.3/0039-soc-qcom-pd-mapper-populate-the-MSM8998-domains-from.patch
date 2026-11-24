@@ -1,7 +1,7 @@
 From 480f1c93f1ef0885a9431adbdd413385e54e9484 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 20:37:43 +0300
-Subject: [PATCH 39/57] soc: qcom: pd-mapper: populate the MSM8998 domains from
+Subject: [PATCH 39/59] soc: qcom: pd-mapper: populate the MSM8998 domains from
  the firmware .jsn
 
 The in-kernel locator listed avs/audio and the modem WLAN loader

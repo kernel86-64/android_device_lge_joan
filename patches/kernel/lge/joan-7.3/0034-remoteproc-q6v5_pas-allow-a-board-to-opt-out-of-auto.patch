@@ -1,7 +1,7 @@
 From 0bbdc3d3a52c94def830968b32c79a4eada20b18 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 19:00:12 +0300
-Subject: [PATCH 34/57] remoteproc: q6v5_pas: allow a board to opt out of
+Subject: [PATCH 34/59] remoteproc: q6v5_pas: allow a board to opt out of
  auto-boot
 
 Some boards can only start the ADSP after userspace has mounted the

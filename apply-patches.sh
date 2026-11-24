@@ -5,7 +5,10 @@
 #
 # A patch directory with a BASE file is a commit series (the kernel): it is
 # applied with git am on top of that commit, and TREE holds the tree the
-# series must produce.
+# series must produce. BASE may also be an upstream commit whose tree is
+# identical to the one the series was generated from: a fresh repo sync
+# checks out the upstream clone, not the private snapshot the series was
+# cut on, so matching the tree (not just the commit) is enough.
 set -euo pipefail
 
 TOP=${1:-$(pwd)}
@@ -13,13 +16,16 @@ PATCHES=$(cd "$(dirname "$0")" && pwd)/patches
 status=0
 
 apply_series() {
-    local project=$1 dir=$PATCHES/$1 base tree
+    local project=$1 dir=$PATCHES/$1 base tree base_tree head_tree
     base=$(<"$dir/BASE")
     tree=$(<"$dir/TREE")
+    head_tree=$(git -C "$TOP/$project" rev-parse 'HEAD^{tree}')
+    base_tree=$(git -C "$TOP/$project" rev-parse -q --verify "$base^{tree}" || true)
 
-    if [[ $(git -C "$TOP/$project" rev-parse 'HEAD^{tree}') == "$tree" ]]; then
+    if [[ $head_tree == "$tree" ]]; then
         echo "applied  $project (series)"
-    elif [[ $(git -C "$TOP/$project" rev-parse HEAD) == "$base" ]]; then
+    elif [[ $(git -C "$TOP/$project" rev-parse HEAD) == "$base" ]] \
+        || [[ -n $base_tree && $head_tree == "$base_tree" ]]; then
         git -C "$TOP/$project" -c user.name='kernel86-64' \
             -c user.email='87580651+kernel86-64@users.noreply.github.com' \
             am -q --keep-cr "$dir"/*.patch
@@ -30,7 +36,7 @@ apply_series() {
         fi
         echo "APPLY    $project ($(find "$dir" -name '*.patch' | wc -l) patches)"
     else
-        echo "FAILED   $project is not at $base; run repo sync first"
+        echo "FAILED   $project is at neither $base nor its tree; run repo sync first"
         status=1
     fi
 }

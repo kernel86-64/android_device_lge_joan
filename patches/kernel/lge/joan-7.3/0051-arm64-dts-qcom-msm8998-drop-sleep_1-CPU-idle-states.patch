@@ -1,7 +1,7 @@
 From 3789efde680fbe5ccac2d55147245e05e224c189 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 00:25:30 +0300
-Subject: [PATCH 51/57] arm64: dts: qcom: msm8998: drop sleep_1 CPU idle states
+Subject: [PATCH 51/59] arm64: dts: qcom: msm8998: drop sleep_1 CPU idle states
 
 Remove little_cpu_sleep_1 and big_cpu_sleep_1 from CPU idle states,
 matching the working 6.18 tree.

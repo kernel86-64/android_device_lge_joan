@@ -1,7 +1,7 @@
 From 30fa7aec82cb61651e0f9e8862a561da95c1d989 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 00:39:22 +0300
-Subject: [PATCH 57/57] media: i2c: import donor joan camera sensors and enable
+Subject: [PATCH 57/59] media: i2c: import donor joan camera sensors and enable
  in joan_defconfig
 
 Port the donor IMX351, S5K3M3, HI553 camera sensors and BU24235 lens

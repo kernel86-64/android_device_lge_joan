@@ -1,7 +1,7 @@
 From 2ee2632ba5c1520a0a47c917408487c62ce93712 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 15:49:13 +0300
-Subject: [PATCH 21/57] iommu/arm-smmu-qcom: keep the msm8998 GPU SMMU resident
+Subject: [PATCH 21/59] iommu/arm-smmu-qcom: keep the msm8998 GPU SMMU resident
 
 The msm8998 GPU SMMU is pinned powered and its register window is XPU-protected after the GPU comes up. Do not runtime-resume it around the TTBR0 context-bank write; that cycle leaves per-instance GPU pagetables without their mapping and produces translation faults.
 ---

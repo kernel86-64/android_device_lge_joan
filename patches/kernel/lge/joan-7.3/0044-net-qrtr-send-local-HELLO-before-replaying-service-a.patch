@@ -1,7 +1,7 @@
 From ef0dfa2b049eefad1b62e5d35cb0d073877a9191 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 22:31:50 +0300
-Subject: [PATCH 44/57] net: qrtr: send local HELLO before replaying service
+Subject: [PATCH 44/59] net: qrtr: send local HELLO before replaying service
  announcements
 
 A peer can deliver its HELLO before the asynchronous endpoint HELLO runs. In that window announce_servers() gives up on the first NEW_SERVER because the transport rejects non-HELLO packets with EAGAIN. Send the pending local HELLO before replaying the names for that peer. This keeps the endpoint gate and retry behavior in place.

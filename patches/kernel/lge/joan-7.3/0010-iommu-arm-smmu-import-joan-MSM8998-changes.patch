@@ -1,7 +1,7 @@
 From 8009c4d8bd92596313f5915bb65cbe99e16b2e0c Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 13:11:07 +0300
-Subject: [PATCH 10/57] iommu/arm-smmu: import joan MSM8998 changes
+Subject: [PATCH 10/59] iommu/arm-smmu: import joan MSM8998 changes
 
 Import the donor SMMU changes from ShapeShifter499/linux-lg-v30-joan at 0f643b34. The joan UFS and display streams need these MSM8998 mappings/quirks.
 ---

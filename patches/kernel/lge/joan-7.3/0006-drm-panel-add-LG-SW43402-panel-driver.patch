@@ -1,7 +1,7 @@
 From 92e2ce80b6a23e3f1aced313c74a4ff26dfdbdd5 Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 13:10:19 +0300
-Subject: [PATCH 06/57] drm/panel: add LG SW43402 panel driver
+Subject: [PATCH 06/59] drm/panel: add LG SW43402 panel driver
 
 Import the LG SW43402 DSC command-mode panel driver from ShapeShifter499/linux-lg-v30-joan at 0f643b34. It is the 1440x2880 panel used by joan.
 ---

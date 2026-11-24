@@ -1,30 +1,29 @@
 # LineageOS 24.0 (Android 17) for the LG V30 (joan) on a mainline kernel
 
 An unofficial LineageOS 24.0 port for the LG V30 that runs on a mainline-based
-**Linux 6.18** kernel instead of LG's 4.4 vendor kernel. Graphics, Wi-Fi,
+**Linux 7.3** kernel instead of LG's 4.4 vendor kernel. Graphics, Wi-Fi,
 Bluetooth and the rest use open drivers (Mesa freedreno, ath10k, btqca, ...)
 rather than the old Qualcomm/LG HALs.
 
-> **Status: early.** The hardware support below was brought up on LineageOS
-> 23.2 (Android 16); this tree is the port of that device tree to LineageOS
-> 24.0 (Android 17) and is still being validated. On 23.2 it boots to a usable
-> Android 16 and most hardware works,
-> including mobile data, Android audio, the cameras and the sensors. SELinux
-> is still permissive and some features are missing (see below). Treat it
-> as a testing build, not a daily driver.
+> **Status: early.** The port was brought up on LineageOS 23.2 (Android 16)
+> with Linux 6.18 and now builds on LineageOS 24.0 (Android 17) with Linux 7.3.
+> It boots to a usable Android 17: display, Wi-Fi, the cellular modem, audio,
+> all three cameras, the torch and the sensors work. SELinux is still
+> permissive and some features are missing (see below). Treat it as a testing
+> build, not a daily driver.
 
-Tested only on the **US998** (V30+, 128 GB). Other variants share the
-hardware, but nobody has tried them.
+Tested only on the **H930DS**. Other variants share the hardware, but nobody
+has tried them.
 
 ## What works
 
 | Area | State |
 |---|---|
-| Boot to Android 16 | Works |
+| Boot to Android 17 | Works |
 | Display (1440x2880, 60 Hz) | Works |
-| GPU | OpenGL ES 3.1 via Mesa freedreno (no Vulkan on A540) |
+| GPU | OpenGL ES 3.1 via Mesa freedreno; OpenGL ES 3.2 and Vulkan 1.1 with the experimental KGSL/Adreno stack |
 | Touch, buttons | Works, including after screen off/on |
-| Mobile network | LTE data and registration work (tested on one carrier) |
+| Mobile network | The modem initialises and reaches the network; SIM registration is still under test |
 | Wi-Fi | Scans and connects (ath10k, no vendor HAL) |
 | Bluetooth | Works (btqca/hci_uart) |
 | Audio | Loudspeaker through Android's audio HAL |
@@ -46,7 +45,7 @@ hardware, but nobody has tried them.
 | Fingerprint | Not working (the stock HAL needs Qualcomm's secure environment) |
 | GPS | No GNSS HAL |
 | Camera quality | Software ISP: exposure can oscillate; the 16 MP main rear camera (imx351) is not selectable in the camera app |
-| Vulkan | None (Turnip needs a6xx+; the proprietary KGSL route is still WIP) |
+| Vulkan | 1.1 with the experimental out-of-tree KGSL stack; none with Mesa (Turnip needs a6xx+) |
 
 ## Building
 
@@ -58,7 +57,7 @@ mkdir lineage && cd lineage
 repo init -u https://github.com/LineageOS/android.git -b lineage-24.0 --git-lfs
 mkdir -p .repo/local_manifests
 curl -o .repo/local_manifests/joan.xml \
-  https://codeberg.org/scada/android_local_manifest_joan/raw/branch/lineage-24.0/joan.xml
+  https://raw.githubusercontent.com/kernel86-64/android_device_lge_joan/lineage-24.0/local_manifest.xml
 repo sync -c -j8
 
 # The joan kernel patches on top of ACK, plus a few fixes outside the
@@ -76,11 +75,14 @@ Subsequent builds must reuse the existing `out` and ccache. Do not run
 explicitly requests it. Use the same SISO build path for builds and tests;
 do not run standalone Ninja against this `out`.
 
-The kernel is the Android Common Kernel `android17-6.18` (Linux 6.18.32),
-which the manifest checks out at commit `7626905e035e` into `kernel/lge/joan`,
-plus the joan patch series in `patches/kernel/lge/joan/`: ShapeShifter499's
-mainline V30 port, squashed per subsystem, and the backports and fixes this
-port needed. It is built as part of the ROM with LineageOS's clang. The output is `out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`,
+The kernel is the Android Common Kernel `android-mainline-7.3` (the v7.3
+merge, `d9ee36f9bbc0`, pinned by the manifest into `kernel/lge/joan-7.3`),
+plus the joan patch series in `patches/kernel/lge/joan-7.3/`: ShapeShifter499's
+mainline V30 port, squashed per subsystem, and the fixes this port needed. The
+manifest also keeps the 6.18.32 project in `kernel/lge/joan` with its own
+series for rollback. `apply-patches.sh` applies whichever series is present,
+and the kernel is built as part of the ROM with LineageOS's clang. The output is
+`out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`,
 together with `boot.img` and `recovery.img`.
 
 The RPM interconnect caches acknowledged average-bandwidth votes by node
@@ -129,9 +131,10 @@ ADSP/audio, registers ath10k, then starts the modem. It publishes WLAN
 readiness when `wlan0` appears. Startup does not bind-mount firmware,
 preassign MSA memory or force remoteproc crashes/retries.
 
-H930DS was verified with both the 80-patch and 103-patch built-in kernels
-using the original OTA modules: Wi-Fi scans and modem QMI services worked.
-SIM registration, dual-SIM operation and suspend/resume still need testing.
+The 7.3 build was verified on an H930DS using the phone's own firmware
+partition: Wi-Fi scans, connects and passes traffic, the modem starts and
+reaches the network, the three cameras and the torch, audio and the sensors
+work. SIM registration, mobile data and suspend/resume still need testing.
 
 ## Installing
 
@@ -165,11 +168,12 @@ anything. They hold your IMEI and calibration.
 
 | Path | Repository |
 |---|---|
-| `device/lge/joan` | [android_device_lge_joan](https://codeberg.org/scada/android_device_lge_joan) |
-| `kernel/lge/joan` | ACK [kernel/common](https://android.googlesource.com/kernel/common) at `7626905e035e` + `patches/kernel/lge/joan/` |
-| `vendor/lge/joan` | [proprietary_vendor_lge_joan](https://codeberg.org/scada/proprietary_vendor_lge_joan) |
-| libcamera prebuilts | built from [libcamera_joan](https://codeberg.org/scada/libcamera_joan), branch `joan-android` |
-| KGSL (experimental) | [kgsl_joan](https://codeberg.org/scada/kgsl_joan), branch `joan-6.18`: Qualcomm's open KGSL ported to the A540 on 6.18 |
+| `device/lge/joan` | [android_device_lge_joan](https://github.com/kernel86-64/android_device_lge_joan) |
+| `kernel/lge/joan-7.3` | ACK [kernel/common](https://android.googlesource.com/kernel/common) at `d9ee36f9bbc0` + `patches/kernel/lge/joan-7.3/` |
+| `kernel/lge/joan` | ACK kernel/common at `7626905e035e` + `patches/kernel/lge/joan/` (6.18 rollback) |
+| `vendor/lge/joan` | [proprietary_vendor_lge_joan](https://github.com/kernel86-64/proprietary_vendor_lge_joan) |
+| libcamera prebuilts | in-tree `prebuilts/libcamera`, built from libcamera with the joan pipeline |
+| KGSL / ION (experimental) | [kgsl_joan](https://github.com/kernel86-64/kgsl_joan) (branch `joan-7.3`) and [ion_legacy](https://github.com/kernel86-64/ion_legacy) |
 
 ## Credits
 

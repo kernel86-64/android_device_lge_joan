@@ -1,7 +1,7 @@
 From 9216244886a678351efdb76f768ee575361f24fb Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 15:43:26 +0300
-Subject: [PATCH 20/57] drm/msm/adreno: power the GX and MX domains on msm8998
+Subject: [PATCH 20/59] drm/msm/adreno: power the GX and MX domains on msm8998
 
 The generic driver core leaves the second GPU power domain unattached on msm8998, so gpu_gx stays off and enabling rbbmtimer fails with -EBUSY. Attach the gx and mx domains by name and power MX before GX around the GPU resume callback. Register VDD_GFX with the OPP core before adding the table so the board opp-microvolt is applied before the core clock is raised.
 ---

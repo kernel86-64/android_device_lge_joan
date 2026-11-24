@@ -1,7 +1,7 @@
 From 3587fcd99e67e784a7f5c92affeb1ea5d5cf04ff Mon Sep 17 00:00:00 2001
 From: kernel86-64 <87580651+kernel86-64@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 00:25:30 +0300
-Subject: [PATCH 50/57] soc: qcom: spm: skip sequence write when L2 SAW has no
+Subject: [PATCH 50/59] soc: qcom: spm: skip sequence write when L2 SAW has no
  sequence offset
 
 L2 SAW2 v2.3/v4.1 controllers on MSM8998 have no SPM_REG_SEQ_ENTRY

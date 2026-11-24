@@ -1,7 +1,7 @@
 From ab06967c240a6c490e7a242eae235b8f018a7be5 Mon Sep 17 00:00:00 2001
 From: scada <scada@noreply.codeberg.org>
 Date: Sun, 22 Nov 2026 15:50:29 +0300
-Subject: [PATCH 22/57] power: supply: add the PMI8998 fuel gauge
+Subject: [PATCH 22/59] power: supply: add the PMI8998 fuel gauge
 
 The 7.3 port kept the PMI8998 charger but dropped the fuel gauge, so healthd saw only the charger and reported no battery. Import the pmi8998_fg driver from the working 6.18 tree and enable it in joan_defconfig.
 ---
