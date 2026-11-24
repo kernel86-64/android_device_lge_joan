@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Legacy msm8998 gralloc1 handle ABI from hardware/qcom/display/gralloc/gr_priv_handle.h.
+#undef LOG_TAG
 #define LOG_TAG "drmhwc-joan"
+#include "bufferinfo/BufferInfo.h"
 #include "bufferinfo/BufferInfoGetter.h"
 #include "utils/log.h"
 
 #include <cstdint>
 #include <limits>
 
-namespace android {
+namespace android::drm_hwcomposer {
 class BufferInfoQcom final : public LegacyBufferInfoGetter {
  public:
   auto GetBoInfo(buffer_handle_t handle) -> std::optional<BufferInfo> override {
@@ -58,7 +60,9 @@ class BufferInfoQcom final : public LegacyBufferInfoGetter {
     BufferInfo info{};
     info.width = static_cast<uint32_t>(data[6]);
     info.height = static_cast<uint32_t>(data[7]);
-    info.format = ConvertHalFormatToDrm(static_cast<uint32_t>(data[8]));
+    info.format = (data[8] == HAL_PIXEL_FORMAT_RGB_565)
+                      ? DRM_FORMAT_RGB565
+                      : ConvertHalFormatToDrm(static_cast<uint32_t>(data[8]));
     info.pitches[0] = static_cast<uint32_t>(pitch);
     info.offsets[0] = static_cast<uint32_t>(data[11]);
     info.prime_fds[0] = data[0];
@@ -67,4 +71,4 @@ class BufferInfoQcom final : public LegacyBufferInfoGetter {
   }
 };
 LEGACY_BUFFER_INFO_GETTER(BufferInfoQcom);
-}  // namespace android
+}  // namespace android::drm_hwcomposer
