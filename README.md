@@ -1,16 +1,22 @@
 # LineageOS 24.0 (Android 17) for the LG V30 (joan) on a mainline kernel
 
-An unofficial LineageOS 24.0 port for the LG V30 that runs on a mainline-based
-**Linux 7.3** kernel instead of LG's 4.4 vendor kernel. Graphics, Wi-Fi,
-Bluetooth and the rest use open drivers (Mesa freedreno, ath10k, btqca, ...)
-rather than the old Qualcomm/LG HALs.
+An unofficial LineageOS 24.0 port for the LG V30 (H930/H930DS, MSM8998) that
+runs on a mainline-based **Linux 7.3** kernel instead of LG's 4.4 vendor
+kernel. The display, Wi-Fi, the cellular modem, audio, the cameras and the
+torch use open drivers (MSM DRM, ath10k, qcom SMEM/QRTR, libcamera, ...)
+rather than the old Qualcomm/LG HALs. The Adreno 540 can additionally run on
+Qualcomm's open KGSL driver on top of the same kernel.
 
-> **Status: early.** The port was brought up on LineageOS 23.2 (Android 16)
-> with Linux 6.18 and now builds on LineageOS 24.0 (Android 17) with Linux 7.3.
-> It boots to a usable Android 17: display, Wi-Fi, the cellular modem, audio,
-> all three cameras, the torch and the sensors work. SELinux is still
-> permissive and some features are missing (see below). Treat it as a testing
-> build, not a daily driver.
+> **Status: testing build.** The port was brought up on LineageOS 23.2
+> (Android 16) with Linux 6.18 and now builds on LineageOS 24.0 (Android 17)
+> with Linux 7.3. It boots to a usable Android 17 and nearly all hardware
+> works: display and Always-On Display, touch, Wi-Fi on 2.4 and 5 GHz, the
+> cellular modem (baseband, IMEI, network registration), audio and the
+> ES9218P Quad DAC, all three cameras, the torch with the Quick Settings
+> strength slider, the sensors, haptics, battery/charging and ADB. SELinux is
+> still permissive, and fingerprint, GPS, VoLTE validation and USB Type-C
+> role switching are missing (see below). Treat it as a testing build, not a
+> daily driver.
 
 Tested only on the **H930DS**. Other variants share the hardware, but nobody
 has tried them.
@@ -20,21 +26,21 @@ has tried them.
 | Area | State |
 |---|---|
 | Boot to Android 17 | Works |
-| Display (1440x2880, 60 Hz) | Works |
-| GPU | OpenGL ES 3.1 via Mesa freedreno; OpenGL ES 3.2 and Vulkan 1.1 with the experimental KGSL/Adreno stack |
+| Display | 1440x2880 at 60 Hz, brightness, Always-On Display (off by default) |
+| GPU | Adreno 540 through the out-of-tree KGSL stack: OpenGL ES 3.2 (`V@0490.0`) and Vulkan 1.1.128, including six consecutive sleep/wake/unlock cycles. The in-tree Mesa freedreno path provides OpenGL ES 3.1 without Vulkan |
 | Touch, buttons | Works, including after screen off/on |
-| Mobile network | The modem initialises and reaches the network; SIM registration is still under test |
-| Wi-Fi | Scans and connects (ath10k, no vendor HAL) |
-| Bluetooth | Works (btqca/hci_uart) |
-| Audio | Loudspeaker through Android's audio HAL |
+| Modem | MPSS starts and stays running (no watchdog or PS_HOLD resets), baseband and IMEI are read from the phone, the modem registers on the network (`Emergency calls only` without a SIM). VoLTE is not tested |
+| Wi-Fi | ath10k/WCN3990: scans 2.4 and 5 GHz, connects, gets an address and passes traffic |
+| Bluetooth | Works (btqca/hci_uart); `hci0: Frame reassembly failed (-84)` still appears in dmesg |
+| Audio | ALSA card `LG-V30` with 7 PCM devices, TFA9872 speaker amplifier |
 | Quad DAC | ES9218P with digital filter, headphone type and analog volume controls, a Quad DAC tile and a 24-bit link (headphone output not yet tested by ear) |
-| Cameras | All three: preview and photos (libcamera, software ISP) |
+| Cameras | All three cameras: preview and photos (libcamera + software ISP on CAMSS) |
 | Flash | Torch from the Quick Settings tile with AOSP's strength slider (long-press), and camera flash |
 | Sensors | Accelerometer, gyroscope, magnetometer, barometer, light, proximity |
-| USB / ADB | Works; USB debugging is off until enabled in Developer options |
-| Battery, charging | Works |
-| CPU, GPU and memory scaling | CPU to 2.4576 GHz, GPU to 710 MHz, DDR follows CPU load |
-| Swap | 3 GB zram |
+| Vibration | DW7800 haptics with Android effects |
+| Battery, charging | PMI8998 fuel gauge via `qcom-battery`; charging and 3 GB zram swap |
+| CPU, GPU and memory scaling | CPU to 2.4576 GHz, GPU to 710 MHz, DDR follows CPU load through BWMON/OPP |
+| USB / ADB | Configfs gadgets; USB debugging is off until enabled in Developer options |
 | Recovery | LineageOS recovery; ADB sideload works |
 
 ## What does not work yet
@@ -44,8 +50,32 @@ has tried them.
 | SELinux | Permissive (policy for the new HALs is not written yet) |
 | Fingerprint | Not working (the stock HAL needs Qualcomm's secure environment) |
 | GPS | No GNSS HAL |
+| VoLTE | Not validated: the modem registers and data attaches, but the IMS/VoLTE path is untested |
+| USB Type-C | Role and alt-mode switching not ported (`qcom_smbx` / PMIC Type-C are missing) |
 | Camera quality | Software ISP: exposure can oscillate; the 16 MP main rear camera (imx351) is not selectable in the camera app |
-| Vulkan | 1.1 with the experimental out-of-tree KGSL stack; none with Mesa (Turnip needs a6xx+) |
+| Vulkan (Mesa) | None (Turnip needs a6xx+); Vulkan is available only through KGSL |
+
+## GPU: KGSL and Mesa
+
+The Adreno 540 is driven by Qualcomm's open KGSL driver, built out of tree
+from [kgsl_joan](https://github.com/kernel86-64/kgsl_joan) (branch `joan-7.3`)
+with [ion_legacy](https://github.com/kernel86-64/ion_legacy) providing the
+64-bit `/dev/ion` ABI over the mainline dma-buf heaps. It runs with
+`msm.separate_gpu_kms=1`, so DRM owns the display and KGSL owns the GPU:
+OpenGL ES 3.2 (V@0490.0) and Vulkan 1.1.128 work, and the RGB565 scanout
+colours are fixed in `graphics/BufferInfoQcom.cpp`.
+
+The device-specific kernel changes are in the KGSL tree: skip the 27 MHz
+slumber OPP that the mainline msm8998 DT carries (it has no DDR bandwidth),
+never touch per-context SMMU registers once the global registers are secured
+(otherwise the XPU resets the SoC after the zap shader), and clear
+`ADRENO_DEVICE_GPMU_INITIALIZED` before the RBBM software reset so the GPMU
+is re-initialised.
+
+This stack is experimental and currently deployed outside the default ROM
+image. A plain build from this device tree uses the Mesa freedreno path
+(OpenGL ES 3.1, no Vulkan); the KGSL modules and userspace pieces are not yet
+wired into the product makefiles.
 
 ## Building
 
@@ -70,6 +100,14 @@ breakfast joan
 m bacon
 ```
 
+The manifest pulls `device/lge/joan` and `vendor/lge/joan` from
+github.com/kernel86-64 and pins the projects that `apply-patches.sh` patches
+(`build/make`, `build/soong`, `bootable/recovery`, `frameworks/base`,
+`external/drm_hwcomposer`, `frameworks/opt/net/wifi`, `hardware/interfaces`,
+`device/lineage/sepolicy`, `hardware/lineage/interfaces`,
+`packages/apps/Aperture`) to the revisions their diffs were generated
+against, so the tree stays reproducible as `lineage-24.0` moves.
+
 Subsequent builds must reuse the existing `out` and ccache. Do not run
 `clean`, `clobber`, `installclean`, or remove build state unless the user
 explicitly requests it. Use the same SISO build path for builds and tests;
@@ -79,10 +117,10 @@ The kernel is the Android Common Kernel `android-mainline-7.3` (the v7.3
 merge, `d9ee36f9bbc0`, pinned by the manifest into `kernel/lge/joan-7.3`),
 plus the joan patch series in `patches/kernel/lge/joan-7.3/`: ShapeShifter499's
 mainline V30 port, squashed per subsystem, and the fixes this port needed.
-`apply-patches.sh` applies the series, and the kernel is built as part of the
-ROM with LineageOS's clang. The output is
-`out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`,
-together with `boot.img` and `recovery.img`.
+`apply-patches.sh` applies the series (59 patches, `BASE`/`TREE` checked) and
+the kernel is built as part of the ROM with LineageOS's clang. The output is
+`out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`, together with
+`boot.img` and `recovery.img`.
 
 The RPM interconnect caches acknowledged average-bandwidth votes by node
 and context. This removes redundant synchronous RPM messages from CPU OPP
@@ -121,19 +159,23 @@ nits calibration again.
 The read-only `modem` partition is mounted at `/vendor/firmware_mnt`.
 Remoteproc firmware, `modem_pr` carrier configuration, WLAN DSP firmware,
 WLAN board data and IPA firmware are linked to its `image/` directory.
-Keep the device's matching firmware partition installed: a vendor image
-must not replace H930DS firmware with the US998 set. The vendor image
-includes the mountpoint and the AOSP supplicant configuration template.
+Keep the device's matching H930DS firmware partition installed: a vendor
+image must not replace it with a US998 set. The vendor image includes the
+mountpoint and the AOSP supplicant configuration template.
 
 After filesystem services and Android are ready, `joan_rprocs.sh` starts
-ADSP/audio, registers ath10k, then starts the modem. It publishes WLAN
-readiness when `wlan0` appears. Startup does not bind-mount firmware,
+ADSP/audio, registers ath10k, then starts the modem. The modem boot depends
+on the MMSS QoS-monitor clocks staying enabled (`gcc_mmss_qm_ahb_clk` and
+`gcc_mmss_qm_core_clk` are marked `CLK_IS_CRITICAL`), on the userspace
+`pd-mapper` for the ADSP/SLPI/modern protection domains, and on `rmtfs`
+being able to write the modem's EFS. Startup does not bind-mount firmware,
 preassign MSA memory or force remoteproc crashes/retries.
 
 The 7.3 build was verified on an H930DS using the phone's own firmware
-partition: Wi-Fi scans, connects and passes traffic, the modem starts and
-reaches the network, the three cameras and the torch, audio and the sensors
-work. SIM registration, mobile data and suspend/resume still need testing.
+partition: MPSS runs without resets, Wi-Fi scans, connects and passes
+traffic, the modem registers on the network, the three cameras and the
+torch, audio and the sensors work. VoLTE, mobile data throughput and
+suspend/resume still need testing.
 
 ## Installing
 
@@ -159,6 +201,9 @@ anything. They hold your IMEI and calibration.
   environment for a development build: it turns adb on at boot and saves
   the kernel log, logcat and pstore of every boot under
   `/data/local/tmp/joan/` (readable from recovery).
+- The modem, ADSP and SLPI states are visible in
+  `/sys/class/remoteproc/remoteproc*/state`; `rmtfs` and `pd-mapper` must be
+  running before `joan_rprocs.sh` starts the modem.
 - If you put your ADB public key in `device/lge/joan/adb_keys` before
   building (it is gitignored), recovery and Android trust your machine
   without tapping Allow, even after a data wipe.
