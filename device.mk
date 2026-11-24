@@ -142,8 +142,8 @@ PRODUCT_SYSTEM_PROPERTIES += \
 # panel stays black (fbcon's linear buffer works). Revisit UBWC later.
 PRODUCT_VENDOR_PROPERTIES += vendor.minigbm.debug=nocompression
 
-# No ashmem driver on this kernel (ACK 6.18 only has the Rust one): use
-# plain memfd. Android 17's libcutils takes sys.use_memfd=true directly.
+# No vendor ashmem driver: the kernel builds the memfd-backed ashmem shim,
+# and Android 17's libcutils takes sys.use_memfd=true directly.
 PRODUCT_SYSTEM_PROPERTIES += sys.use_memfd=true
 
 # No Vulkan on Adreno 5xx with Mesa (turnip is a6xx+).

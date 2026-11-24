@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: The LineageOS Project
 # SPDX-License-Identifier: Apache-2.0
 #
-# LG V30 (joan, MSM8998) on a mainline-based 6.18 kernel.
+# LG V30 (joan, MSM8998) on a mainline-based 7.3 kernel.
 #
 
 DEVICE_PATH := device/lge/joan

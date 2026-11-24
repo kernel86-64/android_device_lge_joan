@@ -78,10 +78,9 @@ do not run standalone Ninja against this `out`.
 The kernel is the Android Common Kernel `android-mainline-7.3` (the v7.3
 merge, `d9ee36f9bbc0`, pinned by the manifest into `kernel/lge/joan-7.3`),
 plus the joan patch series in `patches/kernel/lge/joan-7.3/`: ShapeShifter499's
-mainline V30 port, squashed per subsystem, and the fixes this port needed. The
-manifest also keeps the 6.18.32 project in `kernel/lge/joan` with its own
-series for rollback. `apply-patches.sh` applies whichever series is present,
-and the kernel is built as part of the ROM with LineageOS's clang. The output is
+mainline V30 port, squashed per subsystem, and the fixes this port needed.
+`apply-patches.sh` applies the series, and the kernel is built as part of the
+ROM with LineageOS's clang. The output is
 `out/target/product/joan/lineage-24.0-*-UNOFFICIAL-joan.zip`,
 together with `boot.img` and `recovery.img`.
 
@@ -170,7 +169,6 @@ anything. They hold your IMEI and calibration.
 |---|---|
 | `device/lge/joan` | [android_device_lge_joan](https://github.com/kernel86-64/android_device_lge_joan) |
 | `kernel/lge/joan-7.3` | ACK [kernel/common](https://android.googlesource.com/kernel/common) at `d9ee36f9bbc0` + `patches/kernel/lge/joan-7.3/` |
-| `kernel/lge/joan` | ACK kernel/common at `7626905e035e` + `patches/kernel/lge/joan/` (6.18 rollback) |
 | `vendor/lge/joan` | [proprietary_vendor_lge_joan](https://github.com/kernel86-64/proprietary_vendor_lge_joan) |
 | libcamera prebuilts | in-tree `prebuilts/libcamera`, built from libcamera with the joan pipeline |
 | KGSL / ION (experimental) | [kgsl_joan](https://github.com/kernel86-64/kgsl_joan) (branch `joan-7.3`) and [ion_legacy](https://github.com/kernel86-64/ion_legacy) |

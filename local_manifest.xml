@@ -17,11 +17,6 @@
            revision="d9ee36f9bbc0b49f04f192bd19e10a0651503732"
            upstream="android-mainline-7.3" clone-depth="1" />
 
-  <!-- Saved 6.18.32 project for rollback; not the Android 7.3 build. -->
-  <project path="kernel/lge/joan" name="kernel/common" remote="ack"
-           revision="7626905e035eee666b10cf7d6fde35688af35ee4"
-           upstream="android17-6.18" clone-depth="1" />
-
   <!-- apply-patches.sh applies plain diffs to these projects, so pin them to
        the revisions the diffs were generated against. Keep the build/make
        linkfiles: they create build/envsetup.sh, build/core and friends. -->
