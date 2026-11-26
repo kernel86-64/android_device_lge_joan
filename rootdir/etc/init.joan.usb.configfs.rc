@@ -1,6 +1,24 @@
 # Adapted from system/core/rootdir/init.usb.configfs.rc (Apache-2.0).
 # Android UsbHandlerLegacy owns sys.usb.config. These device-specific rules
 # use mainline FunctionFS names and set descriptors before binding the UDC.
+service vendor.joan_adb_suspend /vendor/bin/joan_adb_suspend
+    class core
+    user system
+    group system
+    disabled
+
+on property:sys.usb.ffs.ready=1 && property:sys.usb.configfs=2 && property:init.svc.adbd=running
+    start vendor.joan_adb_suspend
+
+on property:sys.usb.ffs.ready=0
+    stop vendor.joan_adb_suspend
+
+on property:init.svc.adbd=stopped
+    stop vendor.joan_adb_suspend
+
+on property:init.svc.adbd=restarting
+    stop vendor.joan_adb_suspend
+
 on property:sys.usb.config=none && property:sys.usb.configfs=2
     write /config/usb_gadget/g1/UDC "none"
     stop adbd

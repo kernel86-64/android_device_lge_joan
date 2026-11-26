@@ -156,7 +156,9 @@ PRODUCT_PACKAGES += \
 
 # USB port HAL. Gadget functions use UsbHandlerLegacy and our configfs rules;
 # the AIDL example gadget service is a stub that never applies functions.
-PRODUCT_PACKAGES += android.hardware.usb-service.example
+PRODUCT_PACKAGES += \
+    android.hardware.usb-service.example \
+    joan_adb_suspend
 
 # Keymint / Gatekeeper (software for now; no QSEE on mainline)
 PRODUCT_PACKAGES += \

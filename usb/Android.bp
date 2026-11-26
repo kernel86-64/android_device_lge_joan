@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+
+cc_binary {
+    name: "joan_adb_suspend",
+    vendor: true,
+    srcs: ["joan_adb_suspend.c"],
+    shared_libs: ["libhardware_legacy", "liblog"],
+    cflags: ["-Wall", "-Werror"],
+}

@@ -1,0 +1,11 @@
+type joan_adb_suspend, domain;
+type joan_adb_suspend_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(joan_adb_suspend)
+
+type sysfs_joan_udc_state, fs_type, sysfs_type;
+allow joan_adb_suspend sysfs:dir search;
+allow joan_adb_suspend sysfs_joan_udc_state:file r_file_perms;
+
+binder_use(joan_adb_suspend)
+binder_call(joan_adb_suspend, system_suspend_server)
+allow joan_adb_suspend hal_system_suspend_service:service_manager find;

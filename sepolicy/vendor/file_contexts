@@ -14,6 +14,7 @@
 /vendor/bin/hw/android\.hardware\.vibrator-service\.joan u:object_r:hal_vibrator_default_exec:s0
 /dev/pn54x                            u:object_r:nfc_device:s0
 /vendor/bin/joan_timekeep              u:object_r:joan_timekeep_exec:s0
+/vendor/bin/joan_adb_suspend           u:object_r:joan_adb_suspend_exec:s0
 /data/vendor/time(/.*)?               u:object_r:joan_time_data_file:s0
 /vendor/bin/hw/android\.hardware\.camera\.provider-service\.lineage u:object_r:hal_camera_default_exec:s0
 /vendor/bin/libcamera(/.*)?             u:object_r:hal_camera_default_exec:s0
