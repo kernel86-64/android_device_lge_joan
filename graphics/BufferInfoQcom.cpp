@@ -10,6 +10,12 @@
 #include <limits>
 
 namespace android::drm_hwcomposer {
+namespace {
+constexpr uint64_t AlignUp(uint64_t value, uint64_t alignment) {
+  return (value + alignment - 1) & ~(alignment - 1);
+}
+}  // namespace
+
 class BufferInfoQcom final : public LegacyBufferInfoGetter {
  public:
   auto GetBoInfo(buffer_handle_t handle) -> std::optional<BufferInfo> override {
@@ -20,12 +26,15 @@ class BufferInfoQcom final : public LegacyBufferInfoGetter {
         handle->data[2] != 0x676d736d) {
       return {};
     }
-    constexpr uint32_t kUnsupported = 0x00000400 | 0x00004000 |
-                                     0x01000000 | 0x02000000 | 0x08000000;
-    if ((static_cast<uint32_t>(handle->data[3]) & kUnsupported) != 0) {
-      // Secure and compressed/tiled layouts need separate KMS support.
+    constexpr uint32_t kFlagUbwcAligned = 0x08000000u;
+    constexpr uint32_t kUnsupported = 0x00000400u | 0x00004000u |
+                                      0x01000000u | 0x02000000u;
+    const uint32_t flags = static_cast<uint32_t>(handle->data[3]);
+    if ((flags & kUnsupported) != 0) {
+      // Secure and non-UBWC tiled layouts need separate KMS support.
       return {};
     }
+    const bool is_ubwc = (flags & kFlagUbwcAligned) != 0;
     const int *data = handle->data;
     if (data[0] < 0 || data[4] <= 0 || data[5] <= 0 || data[6] <= 0 ||
         data[7] <= 0 || data[6] > data[4] || data[7] > data[5] ||
@@ -33,40 +42,84 @@ class BufferInfoQcom final : public LegacyBufferInfoGetter {
       return {};
     }
     uint32_t bpp = 0;
-    switch (data[8]) {
-      case HAL_PIXEL_FORMAT_RGBA_8888:
-      case HAL_PIXEL_FORMAT_RGBX_8888:
-      case HAL_PIXEL_FORMAT_BGRA_8888:
-      case HAL_PIXEL_FORMAT_RGBA_1010102:
-        bpp = 4;
-        break;
-      case HAL_PIXEL_FORMAT_RGB_888:
-        bpp = 3;
-        break;
-      case HAL_PIXEL_FORMAT_RGB_565:
-        bpp = 2;
-        break;
-      default:
-        // Client composition handles YUV until explicit plane layouts exist.
-        return {};
+    uint32_t drm_format = 0;
+    if (is_ubwc) {
+      // DPU1 UBWC 1.0 natively supports ABGR8888/XBGR8888 (RGBA_8888/RGBX_8888).
+      // Reject other UBWC formats (e.g. RGBA_1010102, BGRA_8888, YUV) so
+      // SurfaceFlinger falls back to GPU client composition without color swaps.
+      switch (data[8]) {
+        case HAL_PIXEL_FORMAT_RGBA_8888:
+          drm_format = DRM_FORMAT_ABGR8888;
+          bpp = 4;
+          break;
+        case HAL_PIXEL_FORMAT_RGBX_8888:
+          drm_format = DRM_FORMAT_XBGR8888;
+          bpp = 4;
+          break;
+        default:
+          return {};
+      }
+    } else {
+      switch (data[8]) {
+        case HAL_PIXEL_FORMAT_RGBA_8888:
+        case HAL_PIXEL_FORMAT_RGBX_8888:
+        case HAL_PIXEL_FORMAT_BGRA_8888:
+        case HAL_PIXEL_FORMAT_RGBA_1010102:
+          bpp = 4;
+          break;
+        case HAL_PIXEL_FORMAT_RGB_888:
+          bpp = 3;
+          break;
+        case HAL_PIXEL_FORMAT_RGB_565:
+          bpp = 2;
+          break;
+        default:
+          // Client composition handles YUV until explicit plane layouts exist.
+          return {};
+      }
+      drm_format = (data[8] == HAL_PIXEL_FORMAT_RGB_565)
+                       ? DRM_FORMAT_RGB565
+                       : ConvertHalFormatToDrm(static_cast<uint32_t>(data[8]));
     }
+    const uint64_t width = static_cast<uint32_t>(data[6]);
+    const uint64_t height = static_cast<uint32_t>(data[7]);
     const uint64_t pitch = static_cast<uint64_t>(data[4]) * bpp;
-    const uint64_t end = static_cast<uint64_t>(data[11]) +
-                         pitch * static_cast<uint32_t>(data[7]);
-    if (pitch > std::numeric_limits<uint32_t>::max() ||
-        end > static_cast<uint32_t>(data[10])) {
+    if (pitch > std::numeric_limits<uint32_t>::max()) {
       return {};
     }
+    if (is_ubwc) {
+      // Match drivers/gpu/drm/msm/disp/dpu1/dpu_formats.c UBWC 1.0 RGB layout.
+      const uint64_t expected_pitch = AlignUp(width * bpp, 256);
+      const uint64_t data_size =
+          AlignUp(expected_pitch * AlignUp(height, 16), 4096);
+      const uint64_t meta_pitch = AlignUp((width + 15) / 16, 64);
+      const uint64_t meta_size =
+          AlignUp(meta_pitch * AlignUp((height + 3) / 4, 16), 4096);
+      if (data[11] != 0 || pitch != expected_pitch ||
+          data_size + meta_size > static_cast<uint64_t>(data[10])) {
+        ALOGW("Rejecting UBWC buffer %ux%u pitch=%llu expected=%llu size=%d "
+              "need=%llu offset=%d",
+              static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+              static_cast<unsigned long long>(pitch),
+              static_cast<unsigned long long>(expected_pitch), data[10],
+              static_cast<unsigned long long>(data_size + meta_size), data[11]);
+        return {};
+      }
+    } else {
+      const uint64_t end = static_cast<uint64_t>(data[11]) + pitch * height;
+      if (end > static_cast<uint32_t>(data[10])) {
+        return {};
+      }
+    }
     BufferInfo info{};
-    info.width = static_cast<uint32_t>(data[6]);
-    info.height = static_cast<uint32_t>(data[7]);
-    info.format = (data[8] == HAL_PIXEL_FORMAT_RGB_565)
-                      ? DRM_FORMAT_RGB565
-                      : ConvertHalFormatToDrm(static_cast<uint32_t>(data[8]));
+    info.width = static_cast<uint32_t>(width);
+    info.height = static_cast<uint32_t>(height);
+    info.format = drm_format;
     info.pitches[0] = static_cast<uint32_t>(pitch);
     info.offsets[0] = static_cast<uint32_t>(data[11]);
     info.prime_fds[0] = data[0];
-    info.modifiers[0] = DRM_FORMAT_MOD_LINEAR;
+    info.modifiers[0] =
+        is_ubwc ? DRM_FORMAT_MOD_QCOM_COMPRESSED : DRM_FORMAT_MOD_LINEAR;
     return info;
   }
 };
