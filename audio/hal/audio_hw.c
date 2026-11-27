@@ -16,6 +16,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,6 +39,15 @@
 
 #define PCM_PLAYBACK 0
 #define PCM_CAPTURE 1
+#define PCM_VOICE_RX 2 /* MultiMedia3 */
+#define PCM_VOICE_TX 3 /* MultiMedia4 */
+
+#define VOICE_SESSION_MMODE1 0
+#define VOICE_SESSION_MMODE2 1
+#define VOICE_SESSION_VOICE  2
+
+#define VOICE_RX_PORT_SLIMBUS_0 0
+#define VOICE_RX_PORT_TERT_MI2S 1
 
 #define SAMPLE_RATE 48000
 #define OUT_PERIOD_SIZE 960 /* 20 ms */
@@ -60,6 +70,14 @@ struct joan_audio_device {
     bool quad_dac;
     const char *out_path; /* route applied for the active output, or NULL */
     const char *in_path;
+    bool voice_active;
+    struct pcm *voice_rx_pcm;
+    struct pcm *voice_tx_pcm;
+    const char *voice_rx_path;
+    const char *voice_tx_path;
+    audio_devices_t voice_out_device;
+    float voice_volume;
+    int voice_session;
     struct joan_stream_out *output;
     struct joan_stream_in *input;
 };
@@ -162,11 +180,33 @@ static int ensure_routes(struct joan_audio_device *adev)
 static const char *output_path(audio_devices_t devices, audio_mode_t mode, bool quad_dac)
 {
     if (devices & (AUDIO_DEVICE_OUT_WIRED_HEADSET | AUDIO_DEVICE_OUT_WIRED_HEADPHONE))
-        return quad_dac ? "headphones-hifi" : "headphones";
+        return (quad_dac && mode != AUDIO_MODE_IN_CALL) ? "headphones-hifi" : "headphones";
     if (devices & AUDIO_DEVICE_OUT_EARPIECE)
         return "earpiece";
-    (void)mode;
     return "speaker";
+}
+
+static const char *voice_rx_path_for(audio_devices_t devices)
+{
+    if (devices & (AUDIO_DEVICE_OUT_WIRED_HEADSET | AUDIO_DEVICE_OUT_WIRED_HEADPHONE))
+        return "voice-headphones";
+    if (devices & AUDIO_DEVICE_OUT_SPEAKER)
+        return "voice-speaker";
+    return "voice-earpiece";
+}
+
+static const char *voice_tx_path_for(audio_devices_t devices)
+{
+    if (devices & AUDIO_DEVICE_OUT_WIRED_HEADSET)
+        return "voice-headset-mic";
+    return "voice-main-mic";
+}
+
+static int voice_rx_port_idx_for(audio_devices_t devices)
+{
+    if (devices & AUDIO_DEVICE_OUT_SPEAKER)
+        return VOICE_RX_PORT_TERT_MI2S;
+    return VOICE_RX_PORT_SLIMBUS_0;
 }
 
 /*
@@ -188,10 +228,13 @@ static void set_out_route(struct joan_audio_device *adev, const char *path)
     if (adev->out_path == path || !adev->ar)
         return;
     if (adev->out_path)
-        audio_route_reset_and_update_path(adev->ar, adev->out_path);
+        audio_route_reset_path(adev->ar, adev->out_path);
     adev->out_path = path;
+    if (adev->voice_rx_path)
+        audio_route_apply_path(adev->ar, adev->voice_rx_path);
     if (path)
-        audio_route_apply_and_update_path(adev->ar, path);
+        audio_route_apply_path(adev->ar, path);
+    audio_route_update_mixer(adev->ar);
     ALOGV("output route: %s", path ? path : "none");
 }
 
@@ -200,10 +243,13 @@ static void set_in_route(struct joan_audio_device *adev, const char *path)
     if (adev->in_path == path || !adev->ar)
         return;
     if (adev->in_path)
-        audio_route_reset_and_update_path(adev->ar, adev->in_path);
+        audio_route_reset_path(adev->ar, adev->in_path);
     adev->in_path = path;
+    if (adev->voice_tx_path)
+        audio_route_apply_path(adev->ar, adev->voice_tx_path);
     if (path)
-        audio_route_apply_and_update_path(adev->ar, path);
+        audio_route_apply_path(adev->ar, path);
+    audio_route_update_mixer(adev->ar);
     ALOGV("input route: %s", path ? path : "none");
 }
 
@@ -224,6 +270,8 @@ static struct pcm *open_pcm(int card, int device, unsigned int flags, struct pcm
     }
     return NULL;
 }
+
+static int update_voice_routing_locked(struct joan_audio_device *adev, audio_devices_t devices);
 
 /* ---------------------------------------------------------------- output */
 
@@ -334,6 +382,9 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
             out->devices = devices;
         }
         pthread_mutex_unlock(&out->lock);
+        if (devices != AUDIO_DEVICE_NONE &&
+            (adev->mode == AUDIO_MODE_IN_CALL || adev->voice_active))
+            update_voice_routing_locked(adev, devices);
         pthread_mutex_unlock(&adev->lock);
     }
     str_parms_destroy(parms);
@@ -627,6 +678,283 @@ static int in_remove_audio_effect(const struct audio_stream *stream __unused,
     return 0;
 }
 
+/* ----------------------------------------------------------------- voice */
+
+static void set_mixer_int(struct mixer *mixer, const char *name, int value)
+{
+    struct mixer_ctl *ctl = mixer_get_ctl_by_name(mixer, name);
+
+    if (ctl)
+        mixer_ctl_set_value(ctl, 0, value);
+}
+
+static int set_voice_kctl_int(struct joan_audio_device *adev, const char *name, int value)
+{
+    struct mixer *mixer;
+    struct mixer_ctl *ctl;
+    int ret;
+
+    if (adev->card < 0)
+        return -ENODEV;
+    mixer = mixer_open(adev->card);
+    if (!mixer)
+        return -ENODEV;
+    ctl = mixer_get_ctl_by_name(mixer, name);
+    if (!ctl) {
+        ALOGW("voice mixer control '%s' not found", name);
+        mixer_close(mixer);
+        return -ENOENT;
+    }
+    ret = mixer_ctl_set_value(ctl, 0, value);
+    mixer_close(mixer);
+    if (ret)
+        ALOGE("failed to set '%s' = %d (%d)", name, value, ret);
+    return ret;
+}
+
+static void apply_voice_volume_locked(struct joan_audio_device *adev)
+{
+    struct mixer *mixer;
+    float vol = adev->voice_volume;
+
+    if (adev->card < 0)
+        return;
+    if (vol < 0.0f)
+        vol = 0.0f;
+    if (vol > 1.0f)
+        vol = 1.0f;
+
+    mixer = mixer_open(adev->card);
+    if (!mixer)
+        return;
+
+    if (adev->voice_out_device & AUDIO_DEVICE_OUT_SPEAKER) {
+        int spk_vol = 2 + (int)(vol * 9.0f + 0.5f); /* 2..11 of 0..15 */
+        set_mixer_int(mixer, "Speaker Playback Volume", spk_vol);
+    } else if (adev->voice_out_device &
+               (AUDIO_DEVICE_OUT_WIRED_HEADSET | AUDIO_DEVICE_OUT_WIRED_HEADPHONE)) {
+        int hp_vol = 54 + (int)(vol * 30.0f + 0.5f); /* -30..0 dB */
+        set_mixer_int(mixer, "RX1 Digital Volume", hp_vol);
+        set_mixer_int(mixer, "RX2 Digital Volume", hp_vol);
+    } else {
+        int ear_vol = 54 + (int)(vol * 34.0f + 0.5f); /* -30..+4 dB */
+        set_mixer_int(mixer, "EAR PA Volume", 4);
+        set_mixer_int(mixer, "RX0 Digital Volume", ear_vol);
+    }
+
+    mixer_close(mixer);
+}
+
+static void apply_voice_mic_mute_locked(struct joan_audio_device *adev)
+{
+    struct mixer *mixer;
+    int gain = adev->mic_mute ? 0 : 84;
+
+    if (adev->card < 0)
+        return;
+    mixer = mixer_open(adev->card);
+    if (!mixer)
+        return;
+    set_mixer_int(mixer, "DEC6 Volume", gain);
+    set_mixer_int(mixer, "DEC0 Volume", gain);
+    mixer_close(mixer);
+}
+
+static void restore_default_volumes_locked(struct joan_audio_device *adev)
+{
+    struct mixer *mixer;
+
+    if (adev->card < 0)
+        return;
+    mixer = mixer_open(adev->card);
+    if (!mixer)
+        return;
+    set_mixer_int(mixer, "EAR PA Volume", 4);
+    set_mixer_int(mixer, "RX0 Digital Volume", 84);
+    set_mixer_int(mixer, "RX1 Digital Volume", 84);
+    set_mixer_int(mixer, "RX2 Digital Volume", 84);
+    set_mixer_int(mixer, "Speaker Playback Volume", 8);
+    set_mixer_int(mixer, "DEC6 Volume", 84);
+    set_mixer_int(mixer, "DEC0 Volume", 84);
+    mixer_close(mixer);
+}
+
+static void set_voice_routes_locked(struct joan_audio_device *adev,
+                                    const char *rx_path, const char *tx_path)
+{
+    if (!adev->ar)
+        return;
+    if (adev->voice_rx_path)
+        audio_route_reset_path(adev->ar, adev->voice_rx_path);
+    if (adev->voice_tx_path)
+        audio_route_reset_path(adev->ar, adev->voice_tx_path);
+    adev->voice_rx_path = rx_path;
+    adev->voice_tx_path = tx_path;
+    if (adev->out_path)
+        audio_route_apply_path(adev->ar, adev->out_path);
+    if (adev->in_path)
+        audio_route_apply_path(adev->ar, adev->in_path);
+    if (rx_path)
+        audio_route_apply_path(adev->ar, rx_path);
+    if (tx_path)
+        audio_route_apply_path(adev->ar, tx_path);
+    audio_route_update_mixer(adev->ar);
+}
+
+static void stop_voice_call_locked(struct joan_audio_device *adev)
+{
+    if (!adev->voice_active && !adev->voice_rx_pcm && !adev->voice_tx_pcm)
+        return;
+
+    ALOGI("stopping voice call");
+    set_voice_kctl_int(adev, "Voice Call", 0);
+
+    if (adev->voice_rx_pcm) {
+        pcm_close(adev->voice_rx_pcm);
+        adev->voice_rx_pcm = NULL;
+    }
+    if (adev->voice_tx_pcm) {
+        pcm_close(adev->voice_tx_pcm);
+        adev->voice_tx_pcm = NULL;
+    }
+
+    set_voice_routes_locked(adev, NULL, NULL);
+    restore_default_volumes_locked(adev);
+    adev->voice_active = false;
+}
+
+static int start_voice_call_locked(struct joan_audio_device *adev)
+{
+    struct pcm_config rx_cfg = out_config_default;
+    struct pcm_config tx_cfg = in_config_default;
+    const char *rx_path;
+    const char *tx_path;
+    size_t silence_bytes;
+    void *silence;
+    int rx_port_idx;
+    int ret;
+
+    /*
+     * Both wcd934x (SLIMbus stream enable) and tfa989x (speaker amp start)
+     * only power up in SNDRV_PCM_TRIGGER_START, so the voice backend PCMs
+     * must be started (not merely prepared) and kept running without XRUN
+     * teardown for the duration of the call.
+     */
+    rx_cfg.start_threshold = 1;
+    rx_cfg.stop_threshold = INT_MAX;
+    tx_cfg.start_threshold = 1;
+    tx_cfg.stop_threshold = INT_MAX;
+
+    if (adev->voice_active)
+        return 0;
+
+    if (ensure_routes(adev) != 0) {
+        ALOGE("voice call: audio routes not ready");
+        return -ENODEV;
+    }
+
+    /* Put active media streams in standby so backend routing is clean */
+    if (adev->output) {
+        pthread_mutex_lock(&adev->output->lock);
+        do_out_standby(adev->output);
+        pthread_mutex_unlock(&adev->output->lock);
+    }
+    if (adev->input) {
+        pthread_mutex_lock(&adev->input->lock);
+        do_in_standby(adev->input);
+        pthread_mutex_unlock(&adev->input->lock);
+    }
+
+    rx_path = voice_rx_path_for(adev->voice_out_device);
+    tx_path = voice_tx_path_for(adev->voice_out_device);
+    rx_port_idx = voice_rx_port_idx_for(adev->voice_out_device);
+
+    ALOGI("starting voice call: dev=%#x rx=%s tx=%s session=%d",
+          adev->voice_out_device, rx_path, tx_path, adev->voice_session);
+
+    set_voice_routes_locked(adev, rx_path, tx_path);
+
+    adev->voice_rx_pcm = open_pcm(adev->card, PCM_VOICE_RX,
+                                  PCM_OUT | PCM_MONOTONIC, &rx_cfg);
+    if (!adev->voice_rx_pcm) {
+        ALOGE("voice call: failed to open RX PCM");
+        goto err;
+    }
+    if (pcm_prepare(adev->voice_rx_pcm) != 0) {
+        ALOGE("voice call: failed to prepare RX PCM: %s",
+              pcm_get_error(adev->voice_rx_pcm));
+        goto err;
+    }
+    silence_bytes = rx_cfg.period_size * rx_cfg.channels * sizeof(int16_t);
+    silence = calloc(1, silence_bytes);
+    if (!silence || pcm_write(adev->voice_rx_pcm, silence, silence_bytes) != 0) {
+        ALOGE("voice call: failed to start RX PCM: %s",
+              pcm_get_error(adev->voice_rx_pcm));
+        free(silence);
+        goto err;
+    }
+    free(silence);
+
+    adev->voice_tx_pcm = open_pcm(adev->card, PCM_VOICE_TX,
+                                  PCM_IN | PCM_MONOTONIC, &tx_cfg);
+    if (!adev->voice_tx_pcm) {
+        ALOGE("voice call: failed to open TX PCM");
+        goto err;
+    }
+    if (pcm_prepare(adev->voice_tx_pcm) != 0) {
+        ALOGE("voice call: failed to prepare TX PCM: %s",
+              pcm_get_error(adev->voice_tx_pcm));
+        goto err;
+    }
+    if (pcm_start(adev->voice_tx_pcm) != 0) {
+        ALOGE("voice call: failed to start TX PCM: %s",
+              pcm_get_error(adev->voice_tx_pcm));
+        goto err;
+    }
+
+    set_voice_kctl_int(adev, "Voice Session", adev->voice_session);
+    set_voice_kctl_int(adev, "Voice Rx Port", rx_port_idx);
+    ret = set_voice_kctl_int(adev, "Voice Call", 1);
+    if (ret != 0) {
+        ALOGE("voice call: failed to enable q6voice (%d)", ret);
+        goto err;
+    }
+
+    adev->voice_active = true;
+    apply_voice_volume_locked(adev);
+    apply_voice_mic_mute_locked(adev);
+    return 0;
+
+err:
+    stop_voice_call_locked(adev);
+    return -ENODEV;
+}
+
+static int update_voice_routing_locked(struct joan_audio_device *adev,
+                                       audio_devices_t devices)
+{
+    const char *new_rx_path;
+    const char *new_tx_path;
+
+    if (devices == AUDIO_DEVICE_NONE)
+        return 0;
+
+    new_rx_path = voice_rx_path_for(devices);
+    new_tx_path = voice_tx_path_for(devices);
+    adev->voice_out_device = devices;
+
+    if (!adev->voice_active)
+        return 0;
+
+    if (new_rx_path == adev->voice_rx_path && new_tx_path == adev->voice_tx_path)
+        return 0;
+
+    ALOGI("switching voice route to dev=%#x rx=%s tx=%s",
+          devices, new_rx_path, new_tx_path);
+    stop_voice_call_locked(adev);
+    return start_voice_call_locked(adev);
+}
+
 /* ---------------------------------------------------------------- device */
 
 static int adev_open_output_stream(struct audio_hw_device *dev, audio_io_handle_t handle __unused,
@@ -821,9 +1149,16 @@ static int adev_init_check(const struct audio_hw_device *dev __unused)
     return 0;
 }
 
-static int adev_set_voice_volume(struct audio_hw_device *dev __unused, float volume __unused)
+static int adev_set_voice_volume(struct audio_hw_device *dev, float volume)
 {
-    return -ENOSYS;
+    struct joan_audio_device *adev = (struct joan_audio_device *)dev;
+
+    pthread_mutex_lock(&adev->lock);
+    adev->voice_volume = volume;
+    if (adev->voice_active)
+        apply_voice_volume_locked(adev);
+    pthread_mutex_unlock(&adev->lock);
+    return 0;
 }
 
 static int adev_set_master_volume(struct audio_hw_device *dev __unused, float volume __unused)
@@ -851,7 +1186,22 @@ static int adev_set_mode(struct audio_hw_device *dev, audio_mode_t mode)
     struct joan_audio_device *adev = (struct joan_audio_device *)dev;
 
     pthread_mutex_lock(&adev->lock);
+    ALOGI("set_mode: %d -> %d", adev->mode, mode);
     adev->mode = mode;
+    if (mode == AUDIO_MODE_IN_CALL) {
+        if (!adev->voice_active) {
+            audio_devices_t dev_out = AUDIO_DEVICE_OUT_EARPIECE;
+            if (adev->output &&
+                (adev->output->devices &
+                 (AUDIO_DEVICE_OUT_WIRED_HEADSET | AUDIO_DEVICE_OUT_WIRED_HEADPHONE))) {
+                dev_out = adev->output->devices;
+            }
+            adev->voice_out_device = dev_out;
+            start_voice_call_locked(adev);
+        }
+    } else if (adev->voice_active) {
+        stop_voice_call_locked(adev);
+    }
     pthread_mutex_unlock(&adev->lock);
     return 0;
 }
@@ -860,7 +1210,11 @@ static int adev_set_mic_mute(struct audio_hw_device *dev, bool state)
 {
     struct joan_audio_device *adev = (struct joan_audio_device *)dev;
 
+    pthread_mutex_lock(&adev->lock);
     adev->mic_mute = state;
+    if (adev->voice_active)
+        apply_voice_mic_mute_locked(adev);
+    pthread_mutex_unlock(&adev->lock);
     return 0;
 }
 
@@ -961,6 +1315,9 @@ static int adev_close(hw_device_t *device)
 {
     struct joan_audio_device *adev = (struct joan_audio_device *)device;
 
+    pthread_mutex_lock(&adev->lock);
+    stop_voice_call_locked(adev);
+    pthread_mutex_unlock(&adev->lock);
     if (adev->ar)
         audio_route_free(adev->ar);
     free(adev);
@@ -1003,6 +1360,9 @@ static int adev_open(const hw_module_t *module, const char *name, hw_device_t **
     pthread_mutex_init(&adev->lock, NULL);
     adev->mode = AUDIO_MODE_NORMAL;
     adev->card = -1;
+    adev->voice_out_device = AUDIO_DEVICE_OUT_EARPIECE;
+    adev->voice_volume = 0.8f;
+    adev->voice_session = VOICE_SESSION_MMODE1;
 
     /*
      * Without a sound card (ADSP or codec not up) keep running with no
