@@ -83,9 +83,10 @@ GetTorchStrengthFn g_get_torch_strength = nullptr;
 const camera_module_callbacks_t* g_fw_callbacks = nullptr;
 bool g_mapped = false;
 std::string g_vcm_dev_path;
+std::string g_tof_sysfs_path;
 std::vector<CameraEntry> g_cameras;  // indexed by external camera id
 
-// ---- VCM (ROHM BU24235) discovery ----
+// ---- VCM (ROHM BU24235) & ToF (ST VL53L0X) discovery ----
 
 std::string find_bu24235_subdev() {
     DIR* dir = opendir("/sys/class/video4linux");
@@ -107,6 +108,37 @@ std::string find_bu24235_subdev() {
         char buf[64] = {};
         if (fgets(buf, sizeof(buf), fp) && strncmp(buf, "bu24235", 7) == 0) {
             found = std::string("/dev/") + ent->d_name;
+        }
+        fclose(fp);
+        if (!found.empty()) {
+            break;
+        }
+    }
+    closedir(dir);
+    return found;
+}
+
+std::string find_vl53l0x_sysfs() {
+    DIR* dir = opendir("/sys/bus/iio/devices");
+    if (!dir) {
+        return {};
+    }
+    std::string found;
+    while (struct dirent* ent = readdir(dir)) {
+        if (strncmp(ent->d_name, "iio:device", 10) != 0) {
+            continue;
+        }
+        char name_path[160];
+        snprintf(name_path, sizeof(name_path),
+                 "/sys/bus/iio/devices/%s/name", ent->d_name);
+        FILE* fp = fopen(name_path, "r");
+        if (!fp) {
+            continue;
+        }
+        char buf[64] = {};
+        if (fgets(buf, sizeof(buf), fp) && strncmp(buf, "vl53l0x", 7) == 0) {
+            found = std::string("/sys/bus/iio/devices/") + ent->d_name +
+                    "/in_distance_raw";
         }
         fclose(fp);
         if (!found.empty()) {
@@ -338,10 +370,12 @@ class AfController {
  public:
     ~AfController() { close(); }
 
-    void init(int vcm_fd, int32_t active_w, int32_t active_h) {
+    void init(int vcm_fd, int32_t active_w, int32_t active_h,
+              const std::string& tof_path) {
         {
             std::lock_guard<std::mutex> guard(lock_);
             vcm_fd_ = vcm_fd;
+            tof_path_ = tof_path;
             active_w_ = active_w > 0 ? active_w : 4656;
             active_h_ = active_h > 0 ? active_h : 3496;
             af_mode_ = ANDROID_CONTROL_AF_MODE_CONTINUOUS_PICTURE;
@@ -352,20 +386,36 @@ class AfController {
             hw_pos_ = kVcmDefaultPos;
             vcm_moving_ = true;
             vcm_stop_ = false;
+            tof_stop_ = false;
+            tof_mm_ = -1;
+            tof_seq_ = 0;
+            last_checked_tof_seq_ = 0;
+            locked_tof_mm_ = -1;
+            tof_change_streak_ = 0;
+            tof_vcm_offset_ = 0;
+            tof_cal_samples_ = 0;
             phase_ = Phase::kIdle;
             initial_scan_done_ = false;
         }
         vcm_thread_ = std::thread([this]() { vcm_worker(); });
+        if (!tof_path.empty()) {
+            tof_thread_ = std::thread([this]() { tof_worker(); });
+        }
     }
 
     void close() {
         {
             std::lock_guard<std::mutex> guard(lock_);
             vcm_stop_ = true;
+            tof_stop_ = true;
         }
         vcm_cv_.notify_all();
+        tof_cv_.notify_all();
         if (vcm_thread_.joinable()) {
             vcm_thread_.join();
+        }
+        if (tof_thread_.joinable()) {
+            tof_thread_.join();
         }
         std::lock_guard<std::mutex> guard(lock_);
         if (vcm_fd_ >= 0) {
@@ -508,9 +558,40 @@ class AfController {
                 need_metrics = true;
             } else if (af_mode_ == ANDROID_CONTROL_AF_MODE_CONTINUOUS_PICTURE ||
                        af_mode_ == ANDROID_CONTROL_AF_MODE_CONTINUOUS_VIDEO) {
-                if (!vcm_moving_ && ++monitor_counter_ >= 25) {
-                    monitor_counter_ = 0;
-                    need_metrics = true;
+                if (!vcm_moving_) {
+                    ++monitor_counter_;
+                    // Fast laser distance-change trigger in continuous AF once
+                    // any post-tap cooldown has elapsed.
+                    if (monitor_counter_ >= 0 &&
+                        tof_seq_ != last_checked_tof_seq_ &&
+                        roi_is_near_center_locked()) {
+                        last_checked_tof_seq_ = tof_seq_;
+                        int cur_mm = fresh_tof_mm_locked();
+                        if (cur_mm >= 60 && locked_tof_mm_ >= 60) {
+                            float d_now = tof_mm_to_diopters(cur_mm);
+                            float d_lock = tof_mm_to_diopters(locked_tof_mm_);
+                            if (std::fabs(d_now - d_lock) > 0.70f) {
+                                if (++tof_change_streak_ >= 2) {
+                                    ALOGI("AF laser trigger: %dmm -> %dmm "
+                                          "(dD=%.2f)",
+                                          locked_tof_mm_, cur_mm,
+                                          std::fabs(d_now - d_lock));
+                                    tof_change_streak_ = 0;
+                                    monitor_counter_ = 0;
+                                    start_scan_locked(/*active=*/false);
+                                    return;
+                                }
+                            } else {
+                                tof_change_streak_ = 0;
+                            }
+                        } else {
+                            tof_change_streak_ = 0;
+                        }
+                    }
+                    if (monitor_counter_ >= 25) {
+                        monitor_counter_ = 0;
+                        need_metrics = true;
+                    }
                 }
             }
             roi_copy = roi_;
@@ -665,6 +746,24 @@ class AfController {
                 set_vcm_locked(final_pos);
                 locked_sharpness_ = best_score_;
                 locked_luma_ = m.mean_luma;
+                locked_tof_mm_ = fresh_tof_mm_locked();
+                tof_change_streak_ = 0;
+
+                // Online self-calibration of VL53L0X -> BU24235 offset when
+                // fine CDAF found a clean interior sharpness peak.
+                if (scan_used_tof_ && scan_tof_mm_ >= 80 &&
+                    scan_tof_mm_ <= 1200 && best_i > 0 &&
+                    best_i + 1 < pts.size() && best_score_ > 5.0) {
+                    int raw_est = diopters_to_vcm(1000.0f / scan_tof_mm_);
+                    int err = std::clamp(final_pos - raw_est, -120, 120);
+                    if (tof_cal_samples_ == 0) {
+                        tof_vcm_offset_ = err / 2;
+                    } else {
+                        tof_vcm_offset_ = (tof_vcm_offset_ * 3 + err) / 4;
+                    }
+                    ++tof_cal_samples_;
+                }
+
                 phase_ = Phase::kIdle;
                 lens_state_ = ANDROID_LENS_STATE_STATIONARY;
                 initial_scan_done_ = true;
@@ -672,9 +771,10 @@ class AfController {
                 af_state_ = active_scan_
                                     ? ANDROID_CONTROL_AF_STATE_FOCUSED_LOCKED
                                     : ANDROID_CONTROL_AF_STATE_PASSIVE_FOCUSED;
-                ALOGI("AF converged: pos=%d (%.2fD) score=%.1f active=%d",
+                ALOGI("AF converged: pos=%d (%.2fD) score=%.1f active=%d "
+                      "tof=%dmm off=%d",
                       final_pos, vcm_to_diopters(final_pos), best_score_,
-                      active_scan_ ? 1 : 0);
+                      active_scan_ ? 1 : 0, locked_tof_mm_, tof_vcm_offset_);
             }
         }
     }
@@ -783,6 +883,79 @@ class AfController {
         }
     }
 
+    static float tof_mm_to_diopters(int mm) {
+        if (mm >= 1400) {
+            return 0.0f;
+        }
+        if (mm < 60) {
+            return 0.0f;
+        }
+        return std::clamp(1000.0f / static_cast<float>(mm), 0.0f,
+                          kMinFocusDiopters);
+    }
+
+    bool roi_is_near_center_locked() const {
+        float cx = 0.5f * (roi_.x0 + roi_.x1);
+        float cy = 0.5f * (roi_.y0 + roi_.y1);
+        return std::fabs(cx - 0.5f) <= 0.22f && std::fabs(cy - 0.5f) <= 0.22f;
+    }
+
+    // Returns fresh laser distance in mm (>=60) if valid and <700ms old, else -1.
+    int fresh_tof_mm_locked() const {
+        if (tof_mm_ < 60) {
+            return -1;
+        }
+        auto age = std::chrono::steady_clock::now() - tof_ts_;
+        if (age > std::chrono::milliseconds(700)) {
+            return -1;
+        }
+        return tof_mm_;
+    }
+
+    void tof_worker() {
+        std::string path;
+        {
+            std::lock_guard<std::mutex> lk(lock_);
+            path = tof_path_;
+        }
+        while (true) {
+            int mm = -1;
+            int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+            if (fd >= 0) {
+                char buf[32] = {};
+                ssize_t n = read(fd, buf, sizeof(buf) - 1);
+                ::close(fd);
+                if (n > 0) {
+                    char* end = nullptr;
+                    long v = strtol(buf, &end, 10);
+                    if (end != buf && v >= 0 && v <= 16384) {
+                        mm = static_cast<int>(v);
+                    }
+                }
+            }
+
+            {
+                std::unique_lock<std::mutex> lk(lock_);
+                if (tof_stop_) {
+                    return;
+                }
+                if (mm >= 35) {
+                    tof_mm_ = mm;
+                    tof_ts_ = std::chrono::steady_clock::now();
+                    ++tof_seq_;
+                } else {
+                    // VL53L0X reports ~20mm on invalid/no-return or contact.
+                    tof_mm_ = -1;
+                }
+                tof_cv_.wait_for(lk, std::chrono::milliseconds(120),
+                                 [&]() { return tof_stop_; });
+                if (tof_stop_) {
+                    return;
+                }
+            }
+        }
+    }
+
     void start_scan_locked(bool active) {
         active_scan_ = active;
         phase_ = Phase::kCoarse;
@@ -791,9 +964,39 @@ class AfController {
         best_score_ = -1.0;
         best_pos_ = current_pos_;
         coarse_scores_.clear();
-        // Start from infinity/normal (1020..820) toward macro (440) so
-        // early-stop hits typical scenes quickly while still covering close-up.
-        coarse_steps_ = {1020, 960, 890, 800, 680, 560, 440};
+        coarse_steps_.clear();
+        scan_used_tof_ = false;
+        scan_tof_mm_ = -1;
+
+        int tof_mm = roi_is_near_center_locked() ? fresh_tof_mm_locked() : -1;
+        if (tof_mm >= 60 && tof_mm <= 1350) {
+            int est = std::clamp(
+                    diopters_to_vcm(1000.0f / static_cast<float>(tof_mm)) +
+                            tof_vcm_offset_,
+                    kVcmMacroPos, kVcmInfPos);
+            const int offs[] = {120, 60, 0, -60, -120};
+            for (int off : offs) {
+                int p = std::clamp(est + off, kVcmMacroPos, kVcmInfPos);
+                if (std::find(coarse_steps_.begin(), coarse_steps_.end(), p) ==
+                    coarse_steps_.end()) {
+                    coarse_steps_.push_back(p);
+                }
+            }
+            scan_used_tof_ = true;
+            scan_tof_mm_ = tof_mm;
+            ALOGI("AF laser bracket: %dmm -> est=%d (off=%d, %zu steps)",
+                  tof_mm, est, tof_vcm_offset_, coarse_steps_.size());
+        } else if (tof_mm >= 1400) {
+            // Laser reports far/infinity (>1.4m): sweep far-to-mid only.
+            coarse_steps_ = {1020, 975, 930, 875};
+            scan_used_tof_ = true;
+            scan_tof_mm_ = tof_mm;
+            ALOGI("AF laser far: %dmm -> far sweep (4 steps)", tof_mm);
+        } else {
+            // Off-center tap or no valid laser return: full range sweep.
+            coarse_steps_ = {1020, 960, 890, 800, 680, 560, 440};
+        }
+
         if (std::abs(current_pos_ - coarse_steps_.back()) <
             std::abs(current_pos_ - coarse_steps_.front())) {
             std::reverse(coarse_steps_.begin(), coarse_steps_.end());
@@ -813,6 +1016,20 @@ class AfController {
     int target_pos_ = kVcmDefaultPos;
     int hw_pos_ = kVcmDefaultPos;
     int vcm_fd_ = -1;
+    std::condition_variable tof_cv_;
+    std::thread tof_thread_;
+    std::string tof_path_;
+    bool tof_stop_ = false;
+    int tof_mm_ = -1;
+    std::chrono::steady_clock::time_point tof_ts_{};
+    uint64_t tof_seq_ = 0;
+    uint64_t last_checked_tof_seq_ = 0;
+    int locked_tof_mm_ = -1;
+    int tof_change_streak_ = 0;
+    bool scan_used_tof_ = false;
+    int scan_tof_mm_ = -1;
+    int tof_vcm_offset_ = 0;
+    int tof_cal_samples_ = 0;
     int32_t active_w_ = 4656;
     int32_t active_h_ = 3496;
     uint8_t af_mode_ = ANDROID_CONTROL_AF_MODE_CONTINUOUS_PICTURE;
@@ -1334,6 +1551,10 @@ int ensure_loaded_locked() {
     if (!g_vcm_dev_path.empty()) {
         ALOGI("Found BU24235 VCM subdev: %s", g_vcm_dev_path.c_str());
     }
+    g_tof_sysfs_path = find_vl53l0x_sysfs();
+    if (!g_tof_sysfs_path.empty()) {
+        ALOGI("Found VL53L0X laser AF: %s", g_tof_sysfs_path.c_str());
+    }
 
     if (g_libcam->init) {
         int rc = g_libcam->init();
@@ -1618,10 +1839,16 @@ int wrapper_open(const hw_module_t* module, const char* id,
     if (has_vcm && !vcm_path.empty()) {
         int vcm_fd = open(vcm_path.c_str(), O_RDWR | O_CLOEXEC);
         if (vcm_fd >= 0) {
+            std::string tof_path;
+            {
+                std::lock_guard<std::mutex> guard(g_lock);
+                tof_path = g_tof_sysfs_path;
+            }
             w->has_vcm = true;
-            w->af.init(vcm_fd, active_w, active_h);
-            ALOGI("Camera %d opened VCM %s (fd=%d)", ext_id, vcm_path.c_str(),
-                  vcm_fd);
+            w->af.init(vcm_fd, active_w, active_h, tof_path);
+            ALOGI("Camera %d opened VCM %s (fd=%d, tof=%s)", ext_id,
+                  vcm_path.c_str(), vcm_fd,
+                  tof_path.empty() ? "none" : tof_path.c_str());
         } else {
             ALOGW("Camera %d failed to open VCM %s: %s", ext_id,
                   vcm_path.c_str(), strerror(errno));
