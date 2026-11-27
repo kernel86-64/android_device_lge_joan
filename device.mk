@@ -304,7 +304,9 @@ PRODUCT_COPY_FILES += \
 
 # Camera: upstream libcamera (simple pipeline + software ISP on CAMSS) as a
 # camera3 HAL module behind Lineage's AIDL provider; see prebuilts/libcamera.
-PRODUCT_PACKAGES += android.hardware.camera.provider-service.lineage
+PRODUCT_PACKAGES += \
+    android.hardware.camera.provider-service.lineage \
+    camera.joan
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/prebuilts/libcamera/lib64/libcamera.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libcamera.so \
     $(LOCAL_PATH)/prebuilts/libcamera/lib64/libcamera-base.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libcamera-base.so \
@@ -320,7 +322,7 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/prebuilts/libcamera/etc/libcamera/configuration.yaml:$(TARGET_COPY_OUT_VENDOR)/etc/libcamera/configuration.yaml \
     frameworks/native/data/etc/android.hardware.camera.front.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.front.xml \
     $(LOCAL_PATH)/configs/permissions/android.hardware.camera.flash-joan.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.camera.flash-joan.xml
-PRODUCT_VENDOR_PROPERTIES += ro.hardware.camera=libcamera
+PRODUCT_VENDOR_PROPERTIES += ro.hardware.camera=joan
 
 # Power HAL: mainline DRM has no display idle_state node, so every touch
 # held the INTERACTION boost (big >= 1344 MHz) for 1.4-5.65 s. Keep the

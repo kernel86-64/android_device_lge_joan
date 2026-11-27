@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+
+cc_library_shared {
+    name: "camera.joan",
+    relative_install_path: "hw",
+    vendor: true,
+    srcs: ["camera_wrapper.cpp"],
+    shared_libs: [
+        "libcamera_metadata",
+        "liblog",
+    ],
+    header_libs: [
+        "libhardware_headers",
+        "libsystem_headers",
+    ],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+}
