@@ -4,9 +4,10 @@
 # libcamera runtime configuration for the LG V30.
 #
 # The CPU debayer keeps its buffers mapped, so copying input lines first
-# only costs time; four threads use the four big cores.
+# only costs time; two threads keep Gold-cluster current draw within CPR
+# margin while easily keeping up with sensor framerate.
 version: 1
 configuration:
   software_isp:
     copy_input_buffer: false
-    threads: 4
+    threads: 2
