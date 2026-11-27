@@ -55,10 +55,10 @@ constexpr float kMinFocusDiopters = 10.0f;  // 10 cm macro
 constexpr float kHyperfocalDiopters = 0.25f;
 constexpr int kVcmMinPos = 0;
 constexpr int kVcmMaxPos = 1023;
-constexpr int kVcmMacroPos = 520;
+constexpr int kVcmMacroPos = 420;
 constexpr int kVcmInfPos = 1023;
 constexpr int kVcmDefaultPos = 960;
-constexpr int kPipelineSkipFrames = 2;  // VFE + SoftISP latency after VCM stops
+constexpr int kPipelineSkipFrames = 3;  // VFE + SoftISP latency after VCM stops
 
 using SetTorchStrengthFn = int (*)(const char*, int);
 using GetTorchStrengthFn = int (*)(const char*, int*);
@@ -272,38 +272,46 @@ FrameMetrics compute_frame_sharpness(buffer_handle_t handle,
     int x1 = std::clamp(static_cast<int>(roi.x1 * width), x0 + 8, width - 4);
     int y1 = std::clamp(static_cast<int>(roi.y1 * height), y0 + 8, height - 4);
 
-    // Step 4 pixels for speed (~4k-8k samples -> <0.2ms on Cortex-A73).
-    constexpr int kStep = 4;
+    // Step 2 pixels with central 1px differences (row[x+1]-row[x-1],
+    // row_dn[x]-row_up[x]) to measure true fine detail, normalized by mean
+    // luma^2 so SoftISP AGC brightness changes never fool contrast AF.
+    constexpr int kStep = 2;
     double grad_sum = 0.0;
     double luma_sum = 0.0;
     uint64_t samples = 0;
 
     if (bpp == 1) {
         for (int y = y0; y < y1; y += kStep) {
+            const uint8_t* row_up =
+                    base + static_cast<size_t>(y - 1) * row_bytes;
             const uint8_t* row = base + static_cast<size_t>(y) * row_bytes;
             const uint8_t* row_dn =
-                    base + static_cast<size_t>(y + 2) * row_bytes;
+                    base + static_cast<size_t>(y + 1) * row_bytes;
             for (int x = x0; x < x1; x += kStep) {
-                int c = row[x];
-                int gx = static_cast<int>(row[x + 2]) - c;
-                int gy = static_cast<int>(row_dn[x]) - c;
+                int gx = static_cast<int>(row[x + 1]) -
+                         static_cast<int>(row[x - 1]);
+                int gy = static_cast<int>(row_dn[x]) -
+                         static_cast<int>(row_up[x]);
                 grad_sum += static_cast<double>(gx * gx + gy * gy);
-                luma_sum += static_cast<double>(c);
+                luma_sum += static_cast<double>(row[x]);
                 ++samples;
             }
         }
     } else {
         // RGBA: use green channel (offset 1) as luma proxy.
         for (int y = y0; y < y1; y += kStep) {
+            const uint8_t* row_up =
+                    base + static_cast<size_t>(y - 1) * row_bytes;
             const uint8_t* row = base + static_cast<size_t>(y) * row_bytes;
             const uint8_t* row_dn =
-                    base + static_cast<size_t>(y + 2) * row_bytes;
+                    base + static_cast<size_t>(y + 1) * row_bytes;
             for (int x = x0; x < x1; x += kStep) {
-                int c = row[x * 4 + 1];
-                int gx = static_cast<int>(row[(x + 2) * 4 + 1]) - c;
-                int gy = static_cast<int>(row_dn[x * 4 + 1]) - c;
+                int gx = static_cast<int>(row[(x + 1) * 4 + 1]) -
+                         static_cast<int>(row[(x - 1) * 4 + 1]);
+                int gy = static_cast<int>(row_dn[x * 4 + 1]) -
+                         static_cast<int>(row_up[x * 4 + 1]);
                 grad_sum += static_cast<double>(gx * gx + gy * gy);
-                luma_sum += static_cast<double>(c);
+                luma_sum += static_cast<double>(row[x * 4 + 1]);
                 ++samples;
             }
         }
@@ -316,8 +324,11 @@ FrameMetrics compute_frame_sharpness(buffer_handle_t handle,
     ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync_end);
 
     if (samples > 0) {
-        out.sharpness = grad_sum / static_cast<double>(samples);
-        out.mean_luma = luma_sum / static_cast<double>(samples);
+        double mean = luma_sum / static_cast<double>(samples);
+        double norm = (mean * mean) + 256.0;
+        out.mean_luma = mean;
+        // Scale by 1000 for readable scores (typically 10..2000).
+        out.sharpness = (grad_sum / static_cast<double>(samples)) * 1000.0 / norm;
         out.valid = true;
     }
     return out;
@@ -380,6 +391,7 @@ class AfController {
                 e.count >= 1) {
                 uint8_t new_mode = e.data.u8[0];
                 if (new_mode != af_mode_) {
+                    uint8_t prev_mode = af_mode_;
                     af_mode_ = new_mode;
                     if (af_mode_ == ANDROID_CONTROL_AF_MODE_OFF) {
                         phase_ = Phase::kIdle;
@@ -389,7 +401,18 @@ class AfController {
                                        ANDROID_CONTROL_AF_MODE_CONTINUOUS_PICTURE ||
                                af_mode_ ==
                                        ANDROID_CONTROL_AF_MODE_CONTINUOUS_VIDEO) {
-                        start_scan_locked(/*active=*/false);
+                        // Don't immediately discard a tap-to-focus lock when
+                        // CameraX returns from AUTO -> CONTINUOUS; keep the
+                        // locked position and let the scene monitor take over.
+                        if (prev_mode == ANDROID_CONTROL_AF_MODE_AUTO ||
+                            prev_mode == ANDROID_CONTROL_AF_MODE_MACRO) {
+                            phase_ = Phase::kIdle;
+                            lens_state_ = ANDROID_LENS_STATE_STATIONARY;
+                            af_state_ = ANDROID_CONTROL_AF_STATE_PASSIVE_FOCUSED;
+                            monitor_counter_ = -30;
+                        } else if (!initial_scan_done_) {
+                            start_scan_locked(/*active=*/false);
+                        }
                     } else {
                         phase_ = Phase::kIdle;
                         af_state_ = ANDROID_CONTROL_AF_STATE_INACTIVE;
@@ -511,7 +534,7 @@ class AfController {
         if (phase_ == Phase::kIdle) {
             // Scene-change monitor for continuous AF: re-scan only on clear
             // defocus or large scene shift to avoid hunting.
-            if (locked_sharpness_ > 20.0) {
+            if (locked_sharpness_ > 3.0) {
                 double ratio = m.sharpness / locked_sharpness_;
                 double luma_diff = std::fabs(m.mean_luma - locked_luma_);
                 if (ratio < 0.55 || ratio > 1.85 || luma_diff > 32.0) {
@@ -529,12 +552,11 @@ class AfController {
                 best_coarse_idx_ = step_idx_;
             }
             ++step_idx_;
-            // Early-stop once we clearly passed a real sharpness peak
-            // (cuts normal AF latency from ~1.8s down to ~0.5-0.7s).
+            // Early-stop once we clearly passed a real sharpness peak.
             const bool passed_peak =
-                    (best_score_ > 25.0) &&
+                    (best_score_ > 5.0) &&
                     (step_idx_ >= best_coarse_idx_ + 2) &&
-                    (m.sharpness < best_score_ * 0.65);
+                    (m.sharpness < best_score_ * 0.55);
             if (!passed_peak && step_idx_ < coarse_steps_.size()) {
                 set_vcm_locked(coarse_steps_[step_idx_]);
                 skip_frames_ = kPipelineSkipFrames;
@@ -551,24 +573,25 @@ class AfController {
                 ALOGI("AF coarse: %s-> best=%d (%.1f)", trace.c_str(),
                       best_pos_, best_score_);
 
-                // Fine sweep around coarse peak without duplicating edge pos.
+                // 4-point fine sweep around coarse peak (+/-20, +/-40) for tight
+                // focus accuracy (~+/-10 DAC).
                 coarse_best_pos_ = best_pos_;
                 coarse_best_score_ = best_score_;
                 fine_steps_.clear();
-                int lo = std::clamp(coarse_best_pos_ - 35, kVcmMacroPos,
-                                    kVcmInfPos);
-                int hi = std::clamp(coarse_best_pos_ + 35, kVcmMacroPos,
-                                    kVcmInfPos);
-                if (lo == coarse_best_pos_) lo = std::min(kVcmInfPos, lo + 25);
-                if (hi == coarse_best_pos_) hi = std::max(kVcmMacroPos, hi - 25);
-                if (std::abs(current_pos_ - hi) < std::abs(current_pos_ - lo)) {
-                    fine_steps_.push_back(hi);
-                    if (lo != hi) fine_steps_.push_back(lo);
-                    fine_reversed_ = true;
-                } else {
-                    fine_steps_.push_back(lo);
-                    if (hi != lo) fine_steps_.push_back(hi);
-                    fine_reversed_ = false;
+                const int offsets[] = {-40, -20, 20, 40};
+                for (int off : offsets) {
+                    int p = std::clamp(coarse_best_pos_ + off, kVcmMacroPos,
+                                       kVcmInfPos);
+                    if (p != coarse_best_pos_ &&
+                        std::find(fine_steps_.begin(), fine_steps_.end(), p) ==
+                                fine_steps_.end()) {
+                        fine_steps_.push_back(p);
+                    }
+                }
+                if (!fine_steps_.empty() &&
+                    std::abs(current_pos_ - fine_steps_.back()) <
+                            std::abs(current_pos_ - fine_steps_.front())) {
+                    std::reverse(fine_steps_.begin(), fine_steps_.end());
                 }
                 fine_scores_.clear();
                 phase_ = Phase::kFine;
@@ -590,18 +613,41 @@ class AfController {
                 set_vcm_locked(fine_steps_[step_idx_]);
                 skip_frames_ = kPipelineSkipFrames;
             } else {
-                // Non-uniform 3-point quadratic vertex on (x0,y0),(x1,y1),(x2,y2).
-                int final_pos = best_pos_;
-                if (fine_scores_.size() == 2) {
-                    int x0 = fine_reversed_ ? fine_steps_[1] : fine_steps_[0];
-                    int x1 = coarse_best_pos_;
-                    int x2 = fine_reversed_ ? fine_steps_[0] : fine_steps_[1];
-                    double y0 = fine_reversed_ ? fine_scores_[1] : fine_scores_[0];
-                    double y1 = coarse_best_score_;
-                    double y2 = fine_reversed_ ? fine_scores_[0] : fine_scores_[1];
-                    ALOGI("AF fine: %d:%.1f %d:%.1f %d:%.1f", x0, y0, x1, y1, x2,
-                          y2);
-                    if (x0 < x1 && x1 < x2 && y1 >= y0 && y1 >= y2) {
+                // Collect (pos, score) pairs sorted by position and pick peak
+                // with quadratic interpolation around the highest interior point.
+                std::vector<std::pair<int, double>> pts;
+                pts.reserve(fine_scores_.size() + 1);
+                pts.emplace_back(coarse_best_pos_, coarse_best_score_);
+                for (size_t i = 0; i < fine_steps_.size() &&
+                                   i < fine_scores_.size();
+                     ++i) {
+                    pts.emplace_back(fine_steps_[i], fine_scores_[i]);
+                }
+                std::sort(pts.begin(), pts.end());
+
+                std::string ftrace;
+                size_t best_i = 0;
+                for (size_t i = 0; i < pts.size(); ++i) {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%d:%.1f ", pts[i].first,
+                             pts[i].second);
+                    ftrace += buf;
+                    if (pts[i].second > pts[best_i].second) {
+                        best_i = i;
+                    }
+                }
+                ALOGI("AF fine: %s", ftrace.c_str());
+
+                int final_pos = pts[best_i].first;
+                best_score_ = pts[best_i].second;
+                if (best_i > 0 && best_i + 1 < pts.size()) {
+                    int x0 = pts[best_i - 1].first;
+                    int x1 = pts[best_i].first;
+                    int x2 = pts[best_i + 1].first;
+                    double y0 = pts[best_i - 1].second;
+                    double y1 = pts[best_i].second;
+                    double y2 = pts[best_i + 1].second;
+                    if (x0 < x1 && x1 < x2) {
                         double dx0 = static_cast<double>(x0 - x1);
                         double dx2 = static_cast<double>(x2 - x1);
                         double d0 = (y0 - y1) / dx0;
@@ -622,7 +668,7 @@ class AfController {
                 phase_ = Phase::kIdle;
                 lens_state_ = ANDROID_LENS_STATE_STATIONARY;
                 initial_scan_done_ = true;
-                monitor_counter_ = 0;
+                monitor_counter_ = active_scan_ ? -40 : 0;
                 af_state_ = active_scan_
                                     ? ANDROID_CONTROL_AF_STATE_FOCUSED_LOCKED
                                     : ANDROID_CONTROL_AF_STATE_PASSIVE_FOCUSED;
@@ -745,9 +791,9 @@ class AfController {
         best_score_ = -1.0;
         best_pos_ = current_pos_;
         coarse_scores_.clear();
-        // Start from the infinity/normal side (1020..890) toward macro (620)
-        // so early-stop hits typical scenes in 3 steps (~0.5s).
-        coarse_steps_ = {1020, 960, 890, 780, 620};
+        // Start from infinity/normal (1020..820) toward macro (440) so
+        // early-stop hits typical scenes quickly while still covering close-up.
+        coarse_steps_ = {1020, 960, 890, 800, 680, 560, 440};
         if (std::abs(current_pos_ - coarse_steps_.back()) <
             std::abs(current_pos_ - coarse_steps_.front())) {
             std::reverse(coarse_steps_.begin(), coarse_steps_.end());
@@ -778,7 +824,6 @@ class AfController {
     Phase phase_ = Phase::kIdle;
     bool active_scan_ = false;
     bool initial_scan_done_ = false;
-    bool fine_reversed_ = false;
     int skip_frames_ = 0;
     int monitor_counter_ = 0;
     size_t step_idx_ = 0;
