@@ -5,6 +5,8 @@
 # Development builds only (androidboot.joan.bootlog=1): logcat holds user data.
 [ "$(getprop ro.boot.joan.bootlog)" = 1 ] || exit 0
 umask 022
+duration=10800
+sample_interval=10
 D=/data/local/tmp/joan/$(cat /proc/sys/kernel/random/boot_id | cut -c1-8)
 mkdir -p "$D/pstore" || exit 1
 chmod 755 /data/local/tmp/joan "$D" "$D/pstore"
@@ -14,18 +16,31 @@ done
 ls -l /sys/fs/pstore > "$D/pstore-list.txt" 2>&1
 cat /proc/cmdline > "$D/cmdline.txt"
 getprop > "$D/properties.txt"
-timeout -k 2 3600 dmesg -w > "$D/dmesg.txt" 2>&1 &
+
+# Android init disables hung-task detection. Collect blocked task stacks
+# during a debug capture without causing a reboot for a blocked task.
+if [ -w /proc/sys/kernel/hung_task_timeout_secs ]; then
+	echo 0 > /proc/sys/kernel/hung_task_panic
+	echo 30 > /proc/sys/kernel/hung_task_timeout_secs
+fi
+
+timeout -k 2 "$duration" dmesg -w > "$D/dmesg.txt" 2>&1 &
 kernel_log=$!
-timeout -k 2 3600 logcat -b all -v threadtime -f "$D/logcat.txt" -r 8192 -n 4 &
+timeout -k 2 "$duration" logcat -b all -v threadtime -f "$D/logcat.txt" -r 8192 -n 4 &
 android_log=$!
 trap 'kill "$kernel_log" "$android_log" 2>/dev/null' EXIT
 
 i=0
-while [ "$i" -lt 360 ]; do
+while [ "$i" -lt "$((duration / sample_interval))" ]; do
 	{
 		echo "=== $(cat /proc/uptime)"
 		cat /proc/loadavg /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io
 		grep -E 'MemAvailable|SwapFree|Dirty|Writeback' /proc/meminfo
+		printf 'suspend success=%s fail=%s\n' \
+			"$(cat /sys/power/suspend_stats/success)" \
+			"$(cat /sys/power/suspend_stats/fail)"
+		grep -E '^POWER_SUPPLY_(STATUS|VOLTAGE_NOW|CURRENT_NOW|CAPACITY|TEMP)=' \
+			/sys/class/power_supply/qcom-battery/uevent
 		for r in /sys/class/remoteproc/remoteproc*; do
 			echo "$(cat "$r/name"): $(cat "$r/state")"
 		done
@@ -35,6 +50,6 @@ while [ "$i" -lt 360 ]; do
 	if [ $((i % 6)) -eq 0 ]; then
 		sync
 	fi
-	sleep 10
+	sleep "$sample_interval"
 	i=$((i + 1))
 done

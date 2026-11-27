@@ -223,7 +223,7 @@ on property:init.svc.logd=running && property:ro.boot.joan.logcat_kmsg=1
 # old /cache copy never wrote anything. Each boot gets its own directory named
 # after boot_id, so a reset does not overwrite the log of the boot that wedged.
 # pstore (ramoops) is copied out before anything else can clear it. Wait for
-# /data, then run for an hour so a freeze minutes in is still captured.
+# /data, then capture for three hours to include late hangs.
 #
 # A hard reset loses whatever ext4 had not written back yet, which used to be
 # the interesting last few seconds, so sync every minute. The directory is made
