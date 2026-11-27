@@ -138,19 +138,6 @@ PRODUCT_SYSTEM_PROPERTIES += \
     debug.hwui.use_hint_manager=true \
     debug.sf.enable_adpf_cpu_hint=true
 
-# Calibrate SurfaceFlinger work durations for the 14.9 ms command-mode
-# sw43402 panel (paired with RT msm_commit + early_hw_done in the kernel):
-# wake SF ~9.2 ms after vsync so composition finishes just before PP_DONE
-# (~14.9 ms), while giving apps the full 16.67 ms budget.
-PRODUCT_VENDOR_PROPERTIES += \
-    debug.sf.use_phase_offsets_as_durations=1 \
-    debug.sf.late.sf.duration=7500000 \
-    debug.sf.late.app.duration=16666666 \
-    debug.sf.early.sf.duration=8000000 \
-    debug.sf.early.app.duration=16666666 \
-    debug.sf.earlyGl.sf.duration=10000000 \
-    debug.sf.earlyGl.app.duration=16666666
-
 # Linear buffers only for now: with UBWC render targets on scanout the
 # panel stays black (fbcon's linear buffer works). Revisit UBWC later.
 PRODUCT_VENDOR_PROPERTIES += vendor.minigbm.debug=nocompression
