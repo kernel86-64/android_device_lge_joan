@@ -142,6 +142,7 @@ void HWSensorBase::activate(bool enable) {
     std::unique_lock<std::mutex> lock(mSensorThread.lock());
     if (mIsEnabled != enable) {
         mIsEnabled = enable;
+        if (enable) mLastScalar = -1.0f;
         enable_sensor(mIioData.sysfspath, enable);
         if (enable) sendAdditionalInfoReport();
         mSensorThread.notifyAll();
@@ -210,7 +211,16 @@ void HWSensorBase::processScanData(uint8_t* data, Event* evt) {
     }
 
     if (isScalarSensor(mSensorInfo.type)) {
-        evt->u.scalar = channelData[0];
+        if (mSensorInfo.type == SensorType::PROXIMITY) {
+            // Linux IIO proximity reports higher values for closer objects
+            // (0 = far, range = near); Android expects distance in cm
+            // (maxRange = far, 0 = near).
+            evt->u.scalar = (channelData[0] > mSensorInfo.maxRange * 0.5f)
+                                    ? 0.0f
+                                    : mSensorInfo.maxRange;
+        } else {
+            evt->u.scalar = channelData[0];
+        }
         return;
     }
     evt->u.vec3.x = getChannelData(channelData, mXMap, mXNegate);
