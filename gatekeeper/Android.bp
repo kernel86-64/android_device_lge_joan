@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+
+cc_binary {
+    name: "android.hardware.gatekeeper-service.joan",
+    relative_install_path: "hw",
+    vendor: true,
+    init_rc: ["android.hardware.gatekeeper-service.joan.rc"],
+    vintf_fragments: ["android.hardware.gatekeeper-service.joan.xml"],
+    srcs: ["service.cpp"],
+    shared_libs: [
+        "android.hardware.gatekeeper-V1-ndk",
+        "android.hardware.security.keymint-V5-ndk",
+        "libbinder_ndk",
+        "libcutils",
+        "libdl",
+        "liblog",
+    ],
+    header_libs: [
+        "libhardware_headers",
+    ],
+}

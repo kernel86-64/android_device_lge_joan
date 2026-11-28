@@ -1,0 +1,5 @@
+service vendor.gatekeeper-joan /vendor/bin/hw/android.hardware.gatekeeper-service.joan
+    class early_hal
+    user system
+    group system
+    interface aidl android.hardware.gatekeeper.IGatekeeper/default
