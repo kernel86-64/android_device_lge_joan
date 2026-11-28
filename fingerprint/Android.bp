@@ -1,0 +1,19 @@
+cc_binary {
+    name: "android.hardware.biometrics.fingerprint-service.joan",
+    relative_install_path: "hw",
+    init_rc: ["android.hardware.biometrics.fingerprint-service.joan.rc"],
+    vintf_fragments: ["android.hardware.biometrics.fingerprint-service.joan.xml"],
+    vendor: true,
+    srcs: ["service.cpp"],
+    shared_libs: [
+        "libbinder_ndk",
+        "libcutils",
+        "liblog",
+        "android.hardware.biometrics.common-V4-ndk",
+        "android.hardware.biometrics.fingerprint-V5-ndk",
+        "android.hardware.keymaster-V4-ndk",
+    ],
+    header_libs: [
+        "libhardware_headers",
+    ],
+}

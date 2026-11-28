@@ -160,10 +160,16 @@ PRODUCT_PACKAGES += \
     android.hardware.usb-service.example \
     joan_adb_suspend
 
-# Keymint / Gatekeeper (software for now; no QSEE on mainline)
+# Keymint / Hardware TrustZone Gatekeeper & FPC1020 Fingerprint
 PRODUCT_PACKAGES += \
     android.hardware.security.keymint-service \
-    com.android.hardware.gatekeeper.nonsecure
+    android.hardware.gatekeeper-service.joan \
+    android.hardware.biometrics.fingerprint-service.joan
+
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/fingerprint/android.hardware.fingerprint.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.fingerprint.xml \
+    $(LOCAL_PATH)/qseecom/joan_tz_boot.sh:$(TARGET_COPY_OUT_VENDOR)/bin/joan_tz_boot.sh \
+    $(LOCAL_PATH)/qseecom/qseecomd.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/qseecomd.rc
 
 # Power / Thermal / Vibrator
 PRODUCT_PACKAGES += \
